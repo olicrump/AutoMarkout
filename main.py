@@ -1,3 +1,8 @@
+"""
+Processes a TXT file from AutoCAD's "ATTEXT" function into a markout spreadsheet.
+
+With full GUI
+"""
 
 import csv
 # Output Functions
@@ -43,27 +48,16 @@ class RiggingPoint:
         else:
             self.layer = data[0]
             self.block_type = data[1]
+            self.point_x = float(data[4])
+            self.point_y = float(data[5])
             if data[2] and data[3]:
                 self.point_id = data[2] + '/' + data[3]
             else:
                 self.point_id = data[2] + data[3]
-            self.point_x = float(data[4])
-            self.point_y = float(data[5])
-            # self.point_z = float(data[6])
-            # self.block_id_number = data[7]
-            # self.block_handle = data[8]
-            # self.block_nest_level = data[9]
-            # self.block_y = data[10]
-            # if data[11] and data[12]:
-            #     self.point_hook_height = data[11] + '/' + data[12]
-            # else:
-            #     self.point_hook_height = data[11] + data[12]
-            # self.point_load = data[14]
             if data[15] and data[16]:
                 self.point_type = data[15] + '/' + data[16]
             else:
                 self.point_type = data[15] + data[16]
-            # self.markout = 0
 
     def print_xlsx(self,workbook, worksheet, row, col, direction, datum = (0.0,0.0)):
 
@@ -319,7 +313,7 @@ class RiggingPlot:
         # self.points = import_csv(filename)
         self.points.sort(key=lambda x: x.point_id, reverse=False)
 
-        logger.info('Init RiggingPlot Obj for [%s] and imported %s points', file, len(self.points))
+        logger.info('Init RiggingPlot Obj imported %s points', len(self.points))
 
     def get_layers(self):
         layers = []
@@ -551,6 +545,13 @@ def assign_markouts(points = [],
 def mm_to_m(dist_mm):
 
     return str('{:0.2f}'.format(round(dist_mm / 1000,2))) + 'm'
+
+def mm_to_ftin(mm):
+    dec_ft = (mm/1000)*3.28084
+    int_ft = int(dec_ft)
+    inches = round(12*(dec_ft-int_ft),1)
+    out = str(int_ft)+'\' '+str(inches)+'\"'
+    return out
 
 def set_formats(workbook):
     # Define the formats
@@ -1054,14 +1055,12 @@ class AutoMarkoutGUI:
         self.automarkout_window.geometry(f"+{x}+{y}")
 
         # Make the app responsive
-        self.automarkout_window.columnconfigure(index=0, weight=1, uniform="Silent_Creme")
-        self.automarkout_window.columnconfigure(index=1, weight=1, uniform="Silent_Creme")
-        self.automarkout_window.columnconfigure(index=2, weight=1, uniform="Silent_Creme")
-        self.automarkout_window.columnconfigure(index=3, weight=1, uniform="Silent_Creme")
+        self.automarkout_window.columnconfigure(index=0, weight=1)
+        self.automarkout_window.columnconfigure(index=1, weight=1)
         self.automarkout_window.rowconfigure(index=0, weight=1)
         self.automarkout_window.rowconfigure(index=1, weight=1)
         self.automarkout_window.rowconfigure(index=2, weight=1)
-        # self.automarkout_window.rowconfigure(index=3, weight=1)
+        self.automarkout_window.rowconfigure(index=3, weight=1)
 
         # Create control variables
         self.filename = tk.StringVar(self.automarkout_window, value='No file selected')
@@ -1110,48 +1109,14 @@ class AutoMarkoutGUI:
 
         # Label: Filename
         self.lbl_file = customtkinter.CTkLabel(self.import_frame, text='Loaded file:\n'+str(self.filename.get()))
-        self.lbl_file.grid(row=1, column=0, columnspan=2, padx=(10,10), pady=(5,5), sticky="nsew")
-
-        if self._direct_print == True:
-
-            # Button: Export to XLSX
-            self.btn_export = customtkinter.CTkButton(self.import_frame,
-                                                      text="Export to Excel",
-                                                      command=self.export_xlsx,
-                                                      corner_radius=self.ctk_btn_corner_radius,
-                                                      fg_color=self.ctk_momentry_btn_fg,
-                                                      hover_color=self.ctk_momentry_btn_hover,
-                                                      state='disabled')
-            self.btn_export.grid(row=2, column=0, padx=(10, 5), pady=(5, 10), sticky="nsew")
-
-            # Button: Print
-            self.btn_print = customtkinter.CTkButton(self.import_frame,
-                                                      text="Print to Reciept",
-                                                      command=self.printer_gui_try,
-                                                      corner_radius=self.ctk_btn_corner_radius,
-                                                      fg_color=self.ctk_momentry_btn_fg,
-                                                      hover_color=self.ctk_momentry_btn_hover,
-                                                      state='disabled')
-            self.btn_print.grid(row=2, column=1, padx=(5, 10), pady=(5, 10), sticky="nsew")
-
-        else:
-
-            # Button: Export to XLSX
-            self.btn_export = customtkinter.CTkButton(self.import_frame,
-                                                      text="Export selected points to Excel",
-                                                      command=self.export_xlsx,
-                                                      corner_radius= self.ctk_btn_corner_radius,
-                                                      fg_color=self.ctk_momentry_btn_fg,
-                                                      hover_color=self.ctk_momentry_btn_hover,
-                                                      state='disabled')
-            self.btn_export.grid(row=2, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="nsew")
+        self.lbl_file.grid(row=1, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="nsew")
 
         # --------------------------------------------------------------
         # Create a Frame for the Header Text
         # --------------------------------------------------------------
 
         self.header_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.header_frame.grid(row=0, column=1, padx=(5, 5), pady=(10, 5), sticky="nsew")
+        self.header_frame.grid(row=1, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
 
         self.header_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.header_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1183,27 +1148,14 @@ class AutoMarkoutGUI:
                                              textvariable=self.production,
                                              justify="center",
                                                   state='disabled')
-        self.txt_production.grid(row=1, column=1, padx=(5,10), pady=(5,5), sticky="ew")
-
-        # Label : Unit Selection
-        self.lbl_units = customtkinter.CTkLabel(self.header_frame,
-                                                text="Export Units:",
-                                                justify='left')
-        self.lbl_units.grid(row=2, column=0, padx=(10,5), pady=(5, 10), sticky="nsew")
-
-        self.dpd_units = customtkinter.CTkComboBox(self.header_frame,
-                                                   values=['Metric (m/kg)', 'Imperial (ft/lb)', 'Both Metric & Imperial'],
-                                                   state='disabled',
-                                                   justify='center',
-                                                   variable=self.units)
-        self.dpd_units.grid(row=2, column=1, padx=(5,10), pady=(5, 10), sticky="ew")
+        self.txt_production.grid(row=1, column=1, padx=(5,10), pady=(5,10), sticky="ew")
 
         # --------------------------------------------------------------
         # Create a Frame for the Markout Options
         # --------------------------------------------------------------
 
         self.markout_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.markout_frame.grid(row=0, column=2, padx=(5, 5), pady=(10, 5), sticky="nsew")
+        self.markout_frame.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
 
         self.markout_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.markout_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1213,7 +1165,7 @@ class AutoMarkoutGUI:
 
         # Label : Filter
         self.lbl_markout = customtkinter.CTkLabel(self.markout_frame, text="Markout Type:", justify='left')
-        self.lbl_markout.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="e")
+        self.lbl_markout.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="nsew")
 
         self.dpd_markout = customtkinter.CTkComboBox(self.markout_frame,
                                                     values=['60x40ft Stage', '60x32ft Stage', 'Custom Stage', 'No Stage', 'PA Only Markout'],
@@ -1227,12 +1179,13 @@ class AutoMarkoutGUI:
         self.lbl_stage_width = customtkinter.CTkLabel(self.markout_frame,
                                               text="Stage Width:",
                                               justify='right')
-        self.lbl_stage_width.grid(row=1, column=0, padx=(10,5), pady=(5,5), sticky="e")
+        self.lbl_stage_width.grid(row=1, column=0, padx=(10,5), pady=(5,5), sticky="nsew")
 
         # Text: Width
         self.txt_stage_width = FloatEntry(self.markout_frame,
                                           textvariable=self.stage_width,
-                                                  state='disabled')
+                                                  state='disabled',
+                                      text_color= 'grey')
         self.txt_stage_width.bind('<FocusOut>', self.stage_width_flush)
         self.txt_stage_width.bind('<Return>', self.stage_width_flush)
         self.txt_stage_width.grid(row=1, column=1, padx=(5,10), pady=(5,5), sticky="ew")
@@ -1241,12 +1194,13 @@ class AutoMarkoutGUI:
         self.lbl_stage_depth = customtkinter.CTkLabel(self.markout_frame,
                                               text="Stage Depth:",
                                               justify='right')
-        self.lbl_stage_depth.grid(row=2, column=0, padx=(10,5), pady=(5,10), sticky="e")
+        self.lbl_stage_depth.grid(row=2, column=0, padx=(10,5), pady=(5,10), sticky="nsew")
 
         # Text: Width
         self.txt_stage_depth = FloatEntry(self.markout_frame,
                                           textvariable=self.stage_depth,
-                                                  state='disabled')
+                                                  state='disabled',
+                                      text_color= 'grey')
         self.txt_stage_depth.bind('<FocusOut>', self.stage_depth_flush)
         self.txt_stage_depth.bind('<Return>', self.stage_depth_flush)
         self.txt_stage_depth.grid(row=2, column=1, padx=(5,10), pady=(5,10), sticky="ew")
@@ -1256,7 +1210,7 @@ class AutoMarkoutGUI:
         # --------------------------------------------------------------
 
         self.datum_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.datum_frame.grid(row=0, column=3, padx=(5, 10), pady=(10, 5), sticky="nsew")
+        self.datum_frame.grid(row=3, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
 
         self.datum_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.datum_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1266,7 +1220,7 @@ class AutoMarkoutGUI:
 
         # Label : Filter
         self.lbl_datum = customtkinter.CTkLabel(self.datum_frame, text="Datum Location:", justify='left')
-        self.lbl_datum.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="e")
+        self.lbl_datum.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="nsew")
 
         self.dpd_datum = customtkinter.CTkComboBox(self.datum_frame,
                                                     values=['Drawing Datum', 'Most Upstage Point', 'Custom'],
@@ -1280,12 +1234,13 @@ class AutoMarkoutGUI:
         self.lbl_datum_x = customtkinter.CTkLabel(self.datum_frame,
                                               text="Datum X (SL/SR):",
                                               justify='right')
-        self.lbl_datum_x.grid(row=1, column=0, padx=(10,5), pady=(5,5), sticky="e")
+        self.lbl_datum_x.grid(row=1, column=0, padx=(10,5), pady=(5,5), sticky="nsew")
 
         # Text: Width
         self.txt_datum_x = FloatEntry(self.datum_frame,
                                           textvariable=self.datum_x,
-                                                  state='disabled')
+                                                  state='disabled',
+                                      text_color= 'grey')
         self.txt_datum_x.bind('<FocusOut>', self.datum_x_flush)
         self.txt_datum_x.bind('<Return>', self.datum_x_flush)
         self.txt_datum_x.grid(row=1, column=1, padx=(5,10), pady=(5,5), sticky="ew")
@@ -1294,12 +1249,13 @@ class AutoMarkoutGUI:
         self.lbl_datum_y = customtkinter.CTkLabel(self.datum_frame,
                                               text="Datum Y (US/DS):",
                                               justify='right')
-        self.lbl_datum_y.grid(row=2, column=0, padx=(10,5), pady=(5,10), sticky="e")
+        self.lbl_datum_y.grid(row=2, column=0, padx=(10,5), pady=(5,10), sticky="nsew")
 
         # Text: Width
         self.txt_datum_y = FloatEntry(self.datum_frame,
-                                          textvariable=self.datum_y,
-                                                  state='disabled')
+                                      textvariable=self.datum_y,
+                                      state='disabled',
+                                      text_color= 'grey')
         self.txt_datum_y.bind('<FocusOut>', self.datum_y_flush)
         self.txt_datum_y.bind('<Return>', self.datum_y_flush)
         self.txt_datum_y.grid(row=2, column=1, padx=(5,10), pady=(5,10), sticky="ew")
@@ -1308,25 +1264,101 @@ class AutoMarkoutGUI:
         # Create a Frame for Block Selection
         # --------------------------------------------------------------
 
-        self.block_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.block_frame.grid(row=1, column=0, columnspan=2, padx=(10, 5), pady=(5, 10), sticky="nsew")
+        self.selection_frame = customtkinter.CTkFrame(self.automarkout_window, fg_color='transparent')#, border_width=2)
+        self.selection_frame.grid(row=0, column=1, rowspan=5, padx=(5, 10), pady=(10, 10), sticky="nsew")
+
+        self.block_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
+        self.block_frame_out.grid(row=0, column=0, padx=(0, 0), pady=(0, 5), sticky="nsew")
+
+        # Label: Filename
+        self.lbl_block = customtkinter.CTkLabel(self.block_frame_out, text='Block Selection:')
+        self.lbl_block.grid(row=0, column=0, padx=(10,10), pady=(10,5), sticky="nsew")
+
+        self.block_frame = customtkinter.CTkFrame(self.block_frame_out, border_width=2, fg_color='transparent')
+        self.block_frame.grid(row=1, column=0, padx=(10, 10), pady=(5, 10), sticky="nsew")
 
         self.lst_block_selection = ScrollableCheckBoxFrame(master=self.block_frame,
                                                                  width = 450,
-                                                                 height= 400,
+                                                                 #height= 250,
                                                                  item_list=[])
 
         # --------------------------------------------------------------
         # Create a Frame for Layer Selection
         # --------------------------------------------------------------
 
-        self.layer_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.layer_frame.grid(row=1, column=2, columnspan=2, padx=(5, 10), pady=(5, 10), sticky="nsew")
+        self.layer_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
+        self.layer_frame_out.grid(row=1, column=0, padx=(0, 0), pady=(5, 0), sticky="nsew")
+
+        # Label: Filename
+        self.lbl_layer = customtkinter.CTkLabel(self.layer_frame_out, text='Layer Selection:')
+        self.lbl_layer.grid(row=2, column=0, padx=(10,10), pady=(10,5), sticky="nsew")
+
+        self.layer_frame = customtkinter.CTkFrame(self.layer_frame_out, border_width=2, fg_color='transparent')
+        self.layer_frame.grid(row=3, column=0, padx=(10, 10), pady=(5, 10), sticky="nsew")
 
         self.lst_layer_selection = ScrollableCheckBoxFrame(master=self.layer_frame,
                                                                  width = 450,
-                                                                 height= 400,
+                                                                 #height= 250,
                                                                  item_list=[])
+
+        # --------------------------------------------------------------
+        # Create a Frame for Export
+        # --------------------------------------------------------------
+
+        self.export_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
+        self.export_frame.grid(row=4, column=0, padx=(10, 5), pady=(5, 10), sticky="nsew")
+
+        self.export_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
+        self.export_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
+        self.export_frame.rowconfigure(index=0, weight=1)
+        self.export_frame.rowconfigure(index=1, weight=1)
+
+        # Label : Unit Selection
+        self.lbl_units = customtkinter.CTkLabel(self.export_frame,
+                                                text="Export Units:",
+                                                justify='left')
+        self.lbl_units.grid(row=0, column=0, padx=(10,5), pady=(10, 5), sticky="nsew")
+
+        self.dpd_units = customtkinter.CTkComboBox(self.export_frame,
+                                                   values=['Metric (m/kg)', 'Imperial (ft/lb)', 'Both Metric & Imperial'],
+                                                   state='disabled',
+                                                   justify='center',
+                                                   variable=self.units)
+        self.dpd_units.grid(row=0, column=1, padx=(5,10), pady=(10, 5), sticky="ew")
+
+        if self._direct_print == True:
+
+            # Button: Export to XLSX
+            self.btn_export = customtkinter.CTkButton(self.export_frame,
+                                                      text="Export to Excel",
+                                                      command=self.export_xlsx,
+                                                      corner_radius=self.ctk_btn_corner_radius,
+                                                      fg_color=self.ctk_momentry_btn_fg,
+                                                      hover_color=self.ctk_momentry_btn_hover,
+                                                      state='disabled')
+            self.btn_export.grid(row=1, column=0, padx=(10, 5), pady=(5, 10), sticky="nsew")
+
+            # Button: Print
+            self.btn_print = customtkinter.CTkButton(self.export_frame,
+                                                      text="Print to Reciept",
+                                                      command=self.printer_gui_try,
+                                                      corner_radius=self.ctk_btn_corner_radius,
+                                                      fg_color=self.ctk_momentry_btn_fg,
+                                                      hover_color=self.ctk_momentry_btn_hover,
+                                                      state='disabled')
+            self.btn_print.grid(row=1, column=1, padx=(5, 10), pady=(5, 10), sticky="nsew")
+
+        else:
+
+            # Button: Export to XLSX
+            self.btn_export = customtkinter.CTkButton(self.export_frame,
+                                                      text="Export selected points to Excel",
+                                                      command=self.export_xlsx,
+                                                      corner_radius= self.ctk_btn_corner_radius,
+                                                      fg_color=self.ctk_momentry_btn_fg,
+                                                      hover_color=self.ctk_momentry_btn_hover,
+                                                      state='disabled')
+            self.btn_export.grid(row=1, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="nsew")
 
         # --------------------------------------------------------------
         # Admin / Mainloop
@@ -1389,12 +1421,12 @@ class AutoMarkoutGUI:
             logging.info(' -- Gui: Filename Returned: %s', self.filename)
             try:
 
-                importer=ImportCSV(file, self.automarkout_window)
+                importer=ImportCSV(self.filename, self.automarkout_window)
                 points=importer.return_points()
                 self.rigging_plot = RiggingPlot(points)
             except Exception as e:
                 tk.messagebox.showerror(title='Error',
-                                        message=str(type(e).__name__)+' encountered while Processing XML File',
+                                        message=str(type(e).__name__)+' encountered while Processing File',
                                         detail=e if self._full_trace == False else traceback.format_exc() + '\n' + str(e))
             else:
                 self.load_data()
@@ -1567,8 +1599,8 @@ class AutoMarkoutGUI:
     def markout_callback(self, event):
         markout_type = self.dpd_markout.get()
         if markout_type == '60x40ft Stage':
-            self.txt_stage_width.configure(state='disabled')
-            self.txt_stage_depth.configure(state='disabled')
+            self.txt_stage_width.configure(state='disabled', text_color= 'grey')
+            self.txt_stage_depth.configure(state='disabled', text_color= 'grey')
 
             self.dpd_datum.configure(state='disabled')
             self.datum_x_flt = 0
@@ -1586,8 +1618,8 @@ class AutoMarkoutGUI:
             self.pa_mode = False
 
         elif markout_type == '60x32ft Stage':
-            self.txt_stage_width.configure(state='disabled')
-            self.txt_stage_depth.configure(state='disabled')
+            self.txt_stage_width.configure(state='disabled', text_color= 'grey')
+            self.txt_stage_depth.configure(state='disabled', text_color= 'grey')
 
             self.dpd_datum.configure(state='disabled')
             self.datum_x_flt = 0
@@ -1605,8 +1637,8 @@ class AutoMarkoutGUI:
             self.pa_mode = False
 
         elif markout_type == 'Custom Stage':
-            self.txt_stage_width.configure(state='normal')
-            self.txt_stage_depth.configure(state='normal')
+            self.txt_stage_width.configure(state='normal', text_color= 'white')
+            self.txt_stage_depth.configure(state='normal', text_color= 'white')
 
             self.dpd_datum.configure(state='disabled')
             self.datum_x_flt = 0
@@ -1617,8 +1649,8 @@ class AutoMarkoutGUI:
             self.pa_mode = False
 
         elif markout_type == 'No Stage':
-            self.txt_stage_width.configure(state='disabled')
-            self.txt_stage_depth.configure(state='disabled')
+            self.txt_stage_width.configure(state='disabled', text_color= 'grey')
+            self.txt_stage_depth.configure(state='disabled', text_color= 'grey')
             self.dpd_datum.configure(state='readonly')
 
             self.stage_width_flt = 0
@@ -1631,8 +1663,8 @@ class AutoMarkoutGUI:
             self.pa_mode = False
 
         elif markout_type == 'PA Only Markout':
-            self.txt_stage_width.configure(state='disabled')
-            self.txt_stage_depth.configure(state='disabled')
+            self.txt_stage_width.configure(state='disabled', text_color= 'grey')
+            self.txt_stage_depth.configure(state='disabled', text_color= 'grey')
             self.dpd_datum.configure(state='disabled')
 
             self.stage_width_flt = 0
@@ -1647,8 +1679,8 @@ class AutoMarkoutGUI:
     def datum_callback(self, event):
         datum_type = self.dpd_datum.get()
         if datum_type == 'Drawing Datum':
-            self.txt_datum_x.configure(state='disabled')
-            self.txt_datum_y.configure(state='disabled')
+            self.txt_datum_x.configure(state='disabled', text_color= 'grey')
+            self.txt_datum_y.configure(state='disabled', text_color= 'grey')
 
             self.datum_x_flt = 0
             self.datum_y_flt = 0
@@ -1657,8 +1689,8 @@ class AutoMarkoutGUI:
             self.datum_y.set(str(f'{(self.datum_y_flt/1000):.2f}') + "m")
 
         elif datum_type == 'Most Upstage Point':
-            self.txt_datum_x.configure(state='disabled')
-            self.txt_datum_y.configure(state='disabled')
+            self.txt_datum_x.configure(state='disabled', text_color= 'grey')
+            self.txt_datum_y.configure(state='disabled', text_color= 'grey')
 
             self.datum_x_flt = 0
             self.datum_y_flt = self.rigging_plot.get_most_us_dim()
@@ -1667,8 +1699,8 @@ class AutoMarkoutGUI:
             self.datum_y.set(str(f'{(self.datum_y_flt/1000):.2f}') + "m")
 
         elif datum_type == 'Custom':
-            self.txt_datum_x.configure(state='normal')
-            self.txt_datum_y.configure(state='normal')
+            self.txt_datum_x.configure(state='normal', text_color= 'white')
+            self.txt_datum_y.configure(state='normal', text_color= 'white')
 
     # --------------------------------------------------------------
     # Print button Functions
@@ -2409,5 +2441,10 @@ def test(file):
     subprocess.call(('open', file.split('.tx')[0]+".xlsx"))
 
 if __name__ == "__main__":
-    AutoMarkoutGUI()
     # test(file)
+    try:
+        AutoMarkoutGUI()
+    except Exception as e:
+        tk.messagebox.showerror(title='Error',
+                                message=str(type(e).__name__) + ' encountered. AutoSV has crashed.',
+                                detail=e) # if self._full_trace == False else traceback.format_exc() + '\n' + str(e))
