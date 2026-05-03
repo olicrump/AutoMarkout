@@ -6,7 +6,7 @@ With full GUI
 
 import csv
 # Output Functions
-import print as printer
+# import print as printer
 import xlsxwriter
 import xlsx_box
 # Common / Utils / GUI
@@ -957,57 +957,6 @@ def set_formats(workbook):
     return formats
 
 # --------------------------------------------------------------
-# Print Functions
-# --------------------------------------------------------------
-
-def print_to_escpos(file):
-    points = import_csv(file)
-    points.sort(key=lambda x: x.point_id, reverse=False)
-    markouts = assign_markouts(points, (18290, 12190), 24000)
-
-    markout_key = {0: "1: ON STAGE\nTAPES RUN US\n",
-                   1: "2: UP STAGE\nTAPES RUN US\n",
-                   2: "3: STAGE LEFT\nTAPES RUN SL\n",
-                   3: "4: DOWN STAGE\nTAPES RUN DS\n",
-                   4: "5: STAGE RIGHT\nTAPES RUN SR\n",
-                   5: "6: DELAYS\nTAPES RUN DS\n"}
-    with printer.escpos_printer(idVendor=0x0416, idProduct=0x5011, in_ep=130, out_ep=1) as p:
-
-        p.printer.line_spacing(spacing=0, divisor=180)
-
-        key = -1
-        for markout in markouts:
-            key += 1
-            if markout:
-                p.printer.set(align='center',
-                                 font=0,
-                                 flip=False,
-                                 double_height=False,
-                                 double_width=False,
-                                 custom_size=True,
-                                 width=2,
-                                 height=2,
-                                 invert=False,
-                                 smooth=False,
-                                 bold=False)
-                p.printer.text(markout_key[key])
-                print(markout_key[key])
-
-                p.printer.set(align='center',
-                                 font=1,
-                                 flip=False,
-                                 double_height=False,
-                                 double_width=False,
-                                 custom_size=True,
-                                 width=2,
-                                 height=1,
-                                 invert=False,
-                                 smooth=False,
-                                 bold=False)
-                markout.print_escpos(p.printer)
-                p.printer.text('\n')
-
-# --------------------------------------------------------------
 # GUI
 # --------------------------------------------------------------
 
@@ -1104,7 +1053,7 @@ class AutoMarkoutGUI:
         # --------------------------------------------------------------
 
         self.header_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.header_frame.grid(row=1, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
+        #self.header_frame.grid(row=1, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
 
         self.header_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.header_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1116,7 +1065,7 @@ class AutoMarkoutGUI:
         self.lbl_city = customtkinter.CTkLabel(self.header_frame,
                                                text='City Name:',
                                                justify='left')
-        self.lbl_city.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="nsew")
+        #self.lbl_city.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="nsew")
 
         # Dropdown : City
         self.dpd_city = customtkinter.CTkComboBox(self.header_frame,
@@ -1124,26 +1073,26 @@ class AutoMarkoutGUI:
                                                   justify='center',
                                                   variable=self.city,
                                                   state='disabled')
-        self.dpd_city.grid(row=0, column=1, padx=(5,10), pady=(10,5), sticky="ew")
+        #self.dpd_city.grid(row=0, column=1, padx=(5,10), pady=(10,5), sticky="ew")
 
         # Label : Production
         self.lbl_production = customtkinter.CTkLabel(self.header_frame,
                                              text='Production:',
                                              justify='left')
-        self.lbl_production.grid(row=1, column=0, padx=(10,5), pady=(5,5), sticky="nsew")
+        #self.lbl_production.grid(row=1, column=0, padx=(10,5), pady=(5,5), sticky="nsew")
 
         self.txt_production = customtkinter.CTkEntry(self.header_frame,
                                              textvariable=self.production,
                                              justify="center",
                                                   state='disabled')
-        self.txt_production.grid(row=1, column=1, padx=(5,10), pady=(5,10), sticky="ew")
+        #self.txt_production.grid(row=1, column=1, padx=(5,10), pady=(5,10), sticky="ew")
 
         # --------------------------------------------------------------
         # Create a Frame for the Markout Options
         # --------------------------------------------------------------
 
         self.markout_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.markout_frame.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
+        self.markout_frame.grid(row=1, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
 
         self.markout_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.markout_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1198,7 +1147,7 @@ class AutoMarkoutGUI:
         # --------------------------------------------------------------
 
         self.datum_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.datum_frame.grid(row=3, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
+        self.datum_frame.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="nsew")
 
         self.datum_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.datum_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1253,7 +1202,7 @@ class AutoMarkoutGUI:
         # --------------------------------------------------------------
 
         self.selection_frame = customtkinter.CTkFrame(self.automarkout_window, fg_color='transparent')#, border_width=2)
-        self.selection_frame.grid(row=0, column=1, rowspan=5, padx=(5, 10), pady=(10, 10), sticky="nsew")
+        self.selection_frame.grid(row=0, column=1, rowspan=4, padx=(5, 10), pady=(10, 10), sticky="nsew")
 
         self.block_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
         self.block_frame_out.grid(row=0, column=0, padx=(0, 0), pady=(0, 5), sticky="nsew")
@@ -1267,7 +1216,7 @@ class AutoMarkoutGUI:
 
         self.lst_block_selection = ScrollableCheckBoxFrame(master=self.block_frame,
                                                                  width = 450,
-                                                                 #height= 250,
+                                                                 height= 150,
                                                                  item_list=[])
 
         # --------------------------------------------------------------
@@ -1286,7 +1235,7 @@ class AutoMarkoutGUI:
 
         self.lst_layer_selection = ScrollableCheckBoxFrame(master=self.layer_frame,
                                                                  width = 450,
-                                                                 #height= 250,
+                                                                 height= 150,
                                                                  item_list=[])
 
         # --------------------------------------------------------------
@@ -1294,7 +1243,7 @@ class AutoMarkoutGUI:
         # --------------------------------------------------------------
 
         self.export_frame = customtkinter.CTkFrame(self.automarkout_window, border_width=2, fg_color='transparent')
-        self.export_frame.grid(row=4, column=0, padx=(10, 5), pady=(5, 10), sticky="nsew")
+        self.export_frame.grid(row=3, column=0, padx=(10, 5), pady=(5, 10), sticky="nsew")
 
         self.export_frame.columnconfigure(index=0, weight=4, uniform="Silent_Creme")
         self.export_frame.columnconfigure(index=1, weight=6, uniform="Silent_Creme")
@@ -1912,6 +1861,10 @@ class ImportCSV():
         # self.data = parse_csv_to_cols(filename)
         # self.block_finder_gui()
 
+    # --------------------------------------------------------------
+    # Blockfinder
+    # --------------------------------------------------------------
+
     def block_finder_gui(self):
 
         # Start the window
@@ -2112,6 +2065,10 @@ class ImportCSV():
                 col['min'] = min_val
 
         return filtered_data
+
+    # --------------------------------------------------------------
+    # Keyfinder
+    # --------------------------------------------------------------
 
     def keyfinder_gui(self, block_name):
         # Start the window
@@ -2338,11 +2295,33 @@ class ImportCSV():
 
         logger.info('    - Importer: Attributes Selected')
 
-    def return_points(self):
+    # --------------------------------------------------------------
+    # Return
+    # --------------------------------------------------------------
 
+    def return_points(self):
         self.data = parse_csv_to_cols(self.filename)
-        misc = self.block_finder_gui()
-        self.parent.wait_window(self.blockfinder_window)
+        if (len(self.data) == 6 and
+            len(self.data[1]['unique_vals']) == 1 and
+            self.data[0]['type'] == 'text' and
+            self.data[1]['type'] == 'text' and
+            self.data[2]['type'] == 'numeric' and
+            self.data[3]['type'] == 'numeric' and
+            self.data[4]['type'] == 'text' and
+            self.data[5]['type'] == 'text'):
+            self.points = []
+            for i in range(len(self.data[0]['data'])):
+                sorted_data = {}
+                sorted_data['layer'] = self.data[0]['data'][i]
+                sorted_data['block'] = self.data[1]['data'][i]
+                sorted_data['x'] = float(self.data[2]['data'][i])
+                sorted_data['y'] = float(self.data[3]['data'][i])
+                sorted_data['id'] = self.data[4]['data'][i]
+                sorted_data['type'] = self.data[5]['data'][i]
+                self.points.append(RiggingPoint(sorted_data=sorted_data))
+        else:
+            misc = self.block_finder_gui()
+            self.parent.wait_window(self.blockfinder_window)
 
         logger.info('    - Importer: Returning %s points', len(self.points))
         return self.points
