@@ -960,18 +960,6 @@ def set_formats(workbook):
 # Print Functions
 # --------------------------------------------------------------
 
-def print_to_console(file):
-    points = import_csv(file)
-    points.sort(key=lambda x: x.point_id, reverse=False)
-    markouts = assign_markouts(points, (18290, 9750), 24000)
-
-    key = -1
-    for markout in markouts:
-        key += 1
-        if markout:
-            print(markout.name_dict['long'])
-            markout.print_markout()
-
 def print_to_escpos(file):
     points = import_csv(file)
     points.sort(key=lambda x: x.point_id, reverse=False)
