@@ -1,2 +1,2 @@
 # AutoMarkout
-A Python app to convert AutoCAD data to an XLSX "Markout" sheet using the "ATTEXT" command
+A Python app to convert AutoCAD data to an XLSX "Markout" sheet using the `ATTEXT` command
