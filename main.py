@@ -21,6 +21,7 @@ import traceback
 from functools import partial
 import subprocess, os, platform
 import copy
+import dxf_import
 # Get logger
 logger = logging.getLogger("AutoMarkout")
 # Set logging level to the logger
@@ -385,6 +386,7 @@ class RiggingPlot:
 # --------------------------------------------------------------
 
 def parse_csv_to_cols(file):
+    first_row = True
     with open(file, newline='') as csvfile:
         csvreader = csv.reader(csvfile, delimiter=',', quotechar="'")
         cols = []
@@ -393,9 +395,11 @@ def parse_csv_to_cols(file):
                      'type':None,
                      'max':None,
                      'min':None}
-        for i in range(len(csvreader.__next__())):
-            cols.append(copy.deepcopy(empty_col))
         for row in csvreader:
+            if first_row:
+                first_row = False
+                for i in range(len(row)):
+                    cols.append(copy.deepcopy(empty_col))
             col_no = 0
             for col in row:
                 cols[col_no]['data'].append(col)
@@ -962,7 +966,7 @@ def set_formats(workbook):
 
 class AutoMarkoutGUI:
 
-    _version_num = 'v0.1.0-dev'
+    _version_num = 'v0.2.0-dev'
     _direct_print = False # True False
     _full_trace = True
 
@@ -1198,33 +1202,14 @@ class AutoMarkoutGUI:
         self.txt_datum_y.grid(row=2, column=1, padx=(5,10), pady=(5,10), sticky="ew")
 
         # --------------------------------------------------------------
-        # Create a Frame for Block Selection
+        # Create a Frame for Layer Selection
         # --------------------------------------------------------------
 
         self.selection_frame = customtkinter.CTkFrame(self.automarkout_window, fg_color='transparent')#, border_width=2)
         self.selection_frame.grid(row=0, column=1, rowspan=4, padx=(5, 10), pady=(10, 10), sticky="nsew")
 
-        self.block_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
-        self.block_frame_out.grid(row=0, column=0, padx=(0, 0), pady=(0, 5), sticky="nsew")
-
-        # Label: Filename
-        self.lbl_block = customtkinter.CTkLabel(self.block_frame_out, text='Block Selection:')
-        self.lbl_block.grid(row=0, column=0, padx=(10,10), pady=(10,5), sticky="nsew")
-
-        self.block_frame = customtkinter.CTkFrame(self.block_frame_out, border_width=2, fg_color='transparent')
-        self.block_frame.grid(row=1, column=0, padx=(10, 10), pady=(5, 10), sticky="nsew")
-
-        self.lst_block_selection = ScrollableCheckBoxFrame(master=self.block_frame,
-                                                                 width = 450,
-                                                                 height= 150,
-                                                                 item_list=[])
-
-        # --------------------------------------------------------------
-        # Create a Frame for Layer Selection
-        # --------------------------------------------------------------
-
         self.layer_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
-        self.layer_frame_out.grid(row=1, column=0, padx=(0, 0), pady=(5, 0), sticky="nsew")
+        self.layer_frame_out.grid(row=0, column=0, padx=(0, 0), pady=(0, 0), sticky="nsew")
 
         # Label: Filename
         self.lbl_layer = customtkinter.CTkLabel(self.layer_frame_out, text='Layer Selection:')
@@ -1235,7 +1220,7 @@ class AutoMarkoutGUI:
 
         self.lst_layer_selection = ScrollableCheckBoxFrame(master=self.layer_frame,
                                                                  width = 450,
-                                                                 height= 150,
+                                                                 height= 385,
                                                                  item_list=[])
 
         # --------------------------------------------------------------
@@ -1342,7 +1327,7 @@ class AutoMarkoutGUI:
 
     def file_select(self):
         logging.debug('  - Gui: File Selection Opened')
-        filetypes = (('ATTEXT CDF Files', '*.TXT'),
+        filetypes = (('CAD Import Files', '*.TXT *.CSV *.DXF'),
                      ('All files', '*.*'))
         self.filename = tk.filedialog.askopenfilename(title='Select an Attribute Export File',
                                            initialdir='/',
@@ -1354,7 +1339,7 @@ class AutoMarkoutGUI:
 
         # Check what type of file and export the data:
 
-        if '.txt' in self.filename:
+        if '.txt' in self.filename or '.csv' in self.filename:
             logging.info(' -- Gui: Filename Returned: %s', self.filename)
             try:
 
@@ -1363,16 +1348,30 @@ class AutoMarkoutGUI:
                 self.rigging_plot = RiggingPlot(points)
             except Exception as e:
                 tk.messagebox.showerror(title='Error',
-                                        message=str(type(e).__name__)+' encountered while Processing File',
+                                        message=str(type(e).__name__)+' encountered while Processing TXT/CSV File',
+                                        detail=e if self._full_trace == False else traceback.format_exc() + '\n' + str(e))
+            else:
+                self.load_data()
+
+        elif '.dxf' in self.filename:
+            logging.info(' -- Gui: Filename Returned: %s', self.filename)
+            try:
+
+                importer=ImportDXF(self.filename, self.automarkout_window)
+                points=importer.return_points()
+                self.rigging_plot = RiggingPlot(points)
+            except Exception as e:
+                tk.messagebox.showerror(title='Error',
+                                        message=str(type(e).__name__)+' encountered while Processing DXF File',
                                         detail=e if self._full_trace == False else traceback.format_exc() + '\n' + str(e))
             else:
                 self.load_data()
 
         else:
-            logging.info(' -- Not TXT Error')
+            logging.info(' -- Not Supported Error')
             tk.messagebox.showerror(title='Error',
                                     message='This is not a valid file',
-                                    detail='Please select a .txt file')
+                                    detail='Please select a .txt, .csv, or .dxf file')
             return None
 
     def load_data(self):
@@ -1380,9 +1379,6 @@ class AutoMarkoutGUI:
         # Start sorting the data
         self.city_bits = os.path.split(self.filename)[1].replace('_', ' ').replace('.', ' ').replace('-', ' ')
         self.city_bits = self.city_bits.split(' ')
-        # for bit in self.city_bits:
-        #     if len(bit) < 2:
-        #         self.city_bits.remove(bit)
         try:
             self.city_bits.remove('txt')
         except ValueError:
@@ -1403,13 +1399,7 @@ class AutoMarkoutGUI:
 
         # self.update_checkboxes(self.filter.get())
 
-        self.lst_block_selection.clear_all()
-
         self.lst_layer_selection.clear_all()
-
-        for block in self.rigging_plot.get_block_names():
-            # Add the source to the list, and pre-set the checkbox
-            self.lst_block_selection.add_item(block,True)
 
         for layer in self.rigging_plot.get_layers():
             # Add the source to the list, and pre-set the checkbox
@@ -1432,7 +1422,7 @@ class AutoMarkoutGUI:
     def export_xlsx(self):
         self.out_filename = tk.filedialog.asksaveasfilename(title='Save As',
                                             initialdir=os.path.split(self.filename)[0],
-                                            initialfile=os.path.split(self.filename)[1].replace('.txt','_AutoMarkout'),
+                                            initialfile=os.path.split(self.filename)[1].replace('.txt','_AutoMarkout').replace('.csv','_AutoMarkout').replace('.dxf','_AutoMarkout'),
                                             defaultextension=".xlsx")
 
         self.city = self.dpd_city.get()
@@ -1481,7 +1471,7 @@ class AutoMarkoutGUI:
         for layer in self.rigging_plot.get_layers():
             self.layer_print_state[layer] = self.lst_layer_selection.get(layer).get()
         for block in self.rigging_plot.get_block_names():
-            self.block_print_state[block] = self.lst_block_selection.get(block).get()
+            self.block_print_state[block] = True
 
         return [self.layer_print_state,self.block_print_state]
 
@@ -1837,7 +1827,7 @@ class ImportCSV():
         self.parent = parent
         self.filename = filename
 
-        logger.info('Importer Initialization for file: "%s"', filename)
+        logger.info('CSV Importer Initialization for file: "%s"', filename)
 
         customtkinter.set_appearance_mode("Dark")  # Modes: "System" (standard), "Dark", "Light"
         customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -2326,6 +2316,304 @@ class ImportCSV():
         logger.info('    - Importer: Returning %s points', len(self.points))
         return self.points
 
+class ImportDXF():
+
+    def __init__(self, filename, parent):
+
+        self.parent = parent
+        self.filename = filename
+
+        logger.info('DXF Importer Initialization for file: "%s"', filename)
+
+        customtkinter.set_appearance_mode("Dark")  # Modes: "System" (standard), "Dark", "Light"
+        customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
+
+        self.ctk_btn_corner_radius = 10
+        self.ctk_btn_height = 60
+        self.ctk_btn_width = 60
+        self.ctk_momentry_btn_fg = ('green4', 'green4')  # (light,dark)
+        self.ctk_momentry_btn_hover = ('dark green', 'dark green')
+
+        self.block_selected = False
+        self.pntid_selected = False
+        self.ptype_selected = False
+
+    # --------------------------------------------------------------
+    # Blockfinder
+    # --------------------------------------------------------------
+
+    def block_finder_gui(self):
+
+        # Start the window
+        # self.blockfinder_window = customtkinter.CTk()
+        self.blockfinder_window = customtkinter.CTkToplevel(self.parent)
+        self.blockfinder_window.title("Import DXF Step 1")
+        self.blockfinder_window.option_add("*tearOff", False)
+        self.blockfinder_window.lift()
+        self.blockfinder_window.focus_force()
+
+        screen_width = self.blockfinder_window.winfo_screenwidth()
+        screen_height = self.blockfinder_window.winfo_screenheight()
+        wwidth = self.blockfinder_window.winfo_width()
+        x = (screen_width - (500 if wwidth == 1 else wwidth)) // 2
+        y = (screen_height - self.blockfinder_window.winfo_height()) // 3
+        self.blockfinder_window.geometry(f"+{x}+{y}")
+
+        # Make the app responsive
+        self.blockfinder_window.columnconfigure(index=0, weight=1)
+        self.blockfinder_window.columnconfigure(index=1, weight=3)
+        self.blockfinder_window.rowconfigure(index=0, weight=1)
+        self.blockfinder_window.rowconfigure(index=1, weight=1)
+        self.blockfinder_window.rowconfigure(index=2, weight=1)
+        self.blockfinder_window.rowconfigure(index=3, weight=1)
+
+        block_names_dict = dxf_import.count_block_references(self.filename)
+
+        block_names_for_dpd = []
+        for name in block_names_dict:
+            block_names_for_dpd.append(name+ ' [' +str(block_names_dict[name]) + ' instances]')
+
+        # --------------------------------------------------------------
+        # Header
+        # --------------------------------------------------------------
+
+        self.lbl_head = customtkinter.CTkLabel(self.blockfinder_window,
+                                               text='Please select the name of your block from the dropdown box.',
+                                               justify='center')
+        self.lbl_head.grid(row=0, column=0, padx=(10, 10), pady=(10, 5), sticky="nsew", columnspan=2)
+
+        # --------------------------------------------------------------
+        # Text Vaules (layer, block, id, type)
+        # --------------------------------------------------------------
+
+        self.lbl_block = customtkinter.CTkLabel(self.blockfinder_window,
+                                                text='Block Names:',
+                                                justify='left')
+        self.lbl_block.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="ew")
+
+        self.dpd_block = customtkinter.CTkComboBox(self.blockfinder_window,
+                                                   values=block_names_for_dpd,
+                                                   #variable=self.block_col_name,
+                                                   state="readonly",
+                                                   command=self.block_dpd_callback)
+        self.dpd_block.grid(row=2, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
+
+        # --------------------------------------------------------------
+        # Button: Open file
+        # --------------------------------------------------------------
+
+        self.btn_open = customtkinter.CTkButton(self.blockfinder_window,
+                                                text="Next",
+                                                command=self.block_selected_callback,
+                                                corner_radius= self.ctk_btn_corner_radius,
+                                                fg_color=self.ctk_momentry_btn_fg,
+                                                hover_color=self.ctk_momentry_btn_hover,
+                                                state='disabled')
+        self.btn_open.grid(row=3, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="ns")
+
+        # --------------------------------------------------------------
+        # Admin/Mainloop
+        # --------------------------------------------------------------
+
+        screen_width = self.blockfinder_window.winfo_screenwidth()
+        screen_height = self.blockfinder_window.winfo_screenheight()
+        wwidth = self.blockfinder_window.winfo_width()
+        x = (screen_width - (500 if wwidth == 1 else wwidth)) // 2
+        y = (screen_height - self.blockfinder_window.winfo_height()) // 3
+        self.blockfinder_window.geometry(f"+{x}+{y}")
+
+        return None
+
+    def block_dpd_callback(self, event):
+        self.block_selected = True
+
+        self.block_name = self.dpd_block.get().split(' [')[0]
+
+        self.btn_open.configure(state='normal')
+
+    def block_selected_callback(self):
+
+        self.blockfinder_window.destroy()
+
+        logger.info('    - Importer: Block Selected')
+
+        blocks = dxf_import.get_block_references(self.filename, block_name=self.block_name)
+
+        if len(blocks) == 0:
+            pass
+
+        self.attributes = {}
+        for attribute in blocks[0]['attributes']:
+            # self.attributes.append(attribute)
+            unique_vals = []
+            for block in blocks:
+                if block['attributes'][attribute]['value'] not in unique_vals:
+                    unique_vals.append(block['attributes'][attribute]['value'])
+            self.attributes[attribute] = unique_vals
+
+        self.keyfinder_gui()
+        self.parent.wait_window(self.keyfinder_window)
+
+        self.points = []
+
+        for block in blocks:
+            sorted_data = {}
+            sorted_data['layer'] = block['layer']
+            sorted_data['block'] = block['block_name']
+            sorted_data['id'] = block['attributes'][self.pntid_attribute]['value']
+            sorted_data['type'] = block['attributes'][self.ptype_attribute]['value']
+            sorted_data['x'] = block['insertion_point']['x']
+            sorted_data['y'] = block['insertion_point']['y']
+            self.points.append(RiggingPoint(sorted_data=sorted_data))
+
+        logger.info('    - Importer: Processed block "%s" -  %s points', block,len(self.points))
+
+    # --------------------------------------------------------------
+    # Keyfinder
+    # --------------------------------------------------------------
+
+    def keyfinder_gui(self):
+        # Start the window
+        # self.keyfinder_window = customtkinter.CTk()
+        self.keyfinder_window = customtkinter.CTkToplevel(self.parent)
+        self.keyfinder_window.title('Import DXF Step 2')
+        self.keyfinder_window.option_add("*tearOff", False)
+        self.keyfinder_window.lift()
+        self.keyfinder_window.focus_force()
+
+        screen_width = self.keyfinder_window.winfo_screenwidth()
+        screen_height = self.keyfinder_window.winfo_screenheight()
+        wwidth = self.keyfinder_window.winfo_width()
+        x = (screen_width - (500 if wwidth == 1 else wwidth)) // 2
+        y = (screen_height - self.keyfinder_window.winfo_height()) // 3
+        self.keyfinder_window.geometry(f"+{x}+{y}")
+
+        # Make the app responsive
+        self.keyfinder_window.columnconfigure(index=0, weight=1)
+        self.keyfinder_window.columnconfigure(index=1, weight=3)
+        self.keyfinder_window.rowconfigure(index=0, weight=1)
+        self.keyfinder_window.rowconfigure(index=1, weight=1)
+        self.keyfinder_window.rowconfigure(index=2, weight=1)
+        self.keyfinder_window.rowconfigure(index=3, weight=1)
+        self.keyfinder_window.rowconfigure(index=4, weight=1)
+        self.keyfinder_window.rowconfigure(index=5, weight=1)
+        self.keyfinder_window.rowconfigure(index=6, weight=1)
+        self.keyfinder_window.rowconfigure(index=7, weight=1)
+
+        # Create control variables
+        self.tk_dpd_id = tk.StringVar(self.keyfinder_window, value="-")
+        self.tk_dpd_type = tk.StringVar(self.keyfinder_window, value="-")
+
+        attribute_names = []
+        location = 0
+        for attribute in self.attributes:
+            attribute_names.append(attribute+': ['+', '.join(self.attributes[attribute][0:5]) + ']')
+
+
+        # --------------------------------------------------------------
+        # Header
+        # --------------------------------------------------------------
+
+        self.lbl_head = customtkinter.CTkLabel(self.keyfinder_window,
+                                               text='Please identify the block attributes using the dropdown boxes',
+                                               justify='center')
+        self.lbl_head.grid(row=0, column=0, padx=(10, 10), pady=(10, 5), sticky="nsew", columnspan=2)
+
+        # --------------------------------------------------------------
+        # Text Vaules (id, type)
+        # --------------------------------------------------------------
+
+
+
+        self.lbl_id = customtkinter.CTkLabel(self.keyfinder_window,
+                                                text='Point ID:',
+                                                justify='left')
+        self.lbl_id.grid(row=1, column=0, padx=(10, 5), pady=(5, 5), sticky="ew")
+
+        self.dpd_id = customtkinter.CTkComboBox(self.keyfinder_window,
+                                                   values=attribute_names,
+                                                   variable=self.tk_dpd_id,
+                                                   state="readonly",
+                                                   command=self.pntid_dpd_callback)
+        self.dpd_id.grid(row=1, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
+
+
+
+        self.lbl_type = customtkinter.CTkLabel(self.keyfinder_window,
+                                                text='Point Type:',
+                                                justify='left')
+        self.lbl_type.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="ew")
+
+        self.dpd_type = customtkinter.CTkComboBox(self.keyfinder_window,
+                                                   values=attribute_names,
+                                                   variable=self.tk_dpd_type,
+                                                   state="readonly",
+                                                   command=self.ptype_dpd_callback)
+        self.dpd_type.grid(row=2, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
+
+        # --------------------------------------------------------------
+        # Button: Open file
+        # --------------------------------------------------------------
+
+        self.btn_next = customtkinter.CTkButton(self.keyfinder_window,
+                                                text="Next",
+                                                command=self.key_selected_callback,
+                                                corner_radius= self.ctk_btn_corner_radius,
+                                                fg_color=self.ctk_momentry_btn_fg,
+                                                hover_color=self.ctk_momentry_btn_hover,
+                                                state='disabled')
+        self.btn_next.grid(row=3, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="ns")
+
+        # --------------------------------------------------------------
+        # Admin/Mainloop
+        # --------------------------------------------------------------
+
+        screen_width = self.keyfinder_window.winfo_screenwidth()
+        screen_height = self.keyfinder_window.winfo_screenheight()
+        wwidth = self.keyfinder_window.winfo_width()
+        x = (screen_width - (500 if wwidth == 1 else wwidth)) // 2
+        y = (screen_height - self.keyfinder_window.winfo_height()) // 3
+        self.keyfinder_window.geometry(f"+{x}+{y}")
+
+        # self.keyfinder_window.mainloop()
+
+    def pntid_dpd_callback(self, event):
+        self.pntid_selected = True
+
+        self.pntid_attribute = self.dpd_id.get().split(': [')[0]
+
+        if (self.pntid_selected and
+                self.ptype_selected and
+                self.pntid_attribute != self.ptype_attribute):
+            self.btn_next.configure(state='normal')
+
+    def ptype_dpd_callback(self, event):
+        self.ptype_selected = True
+
+        self.ptype_attribute = self.dpd_type.get().split(': [')[0]
+
+        if (self.pntid_selected and
+                self.ptype_selected and
+                self.pntid_attribute != self.ptype_attribute):
+            self.btn_next.configure(state='normal')
+
+    def key_selected_callback(self):
+
+        self.keyfinder_window.destroy()
+
+        logger.info('    - Importer: Attributes Selected')
+
+    # --------------------------------------------------------------
+    # Return
+    # --------------------------------------------------------------
+
+    def return_points(self):
+        misc = self.block_finder_gui()
+        self.parent.wait_window(self.blockfinder_window)
+
+        logger.info('    - Importer: Returning %s points', len(self.points))
+        return self.points
+
 class ScrollableCheckBoxFrame(customtkinter.CTkScrollableFrame):
     def __init__(self, master, item_list, command=None, **kwargs):
         super().__init__(master, **kwargs)
@@ -2399,8 +2687,8 @@ class FloatEntry(customtkinter.CTkEntry):
 
 def test(file):
     logger.info('Running test function with file: [%s]', file)
-    points = import_csv(file)
-    obj = RiggingPlot(points)
+    dxf = ImportDXF(file,customtkinter.CTk())
+    obj = RiggingPlot(dxf.return_points())
     obj.save_to_xlsx(file.split('.tx')[0]+".xlsx",
                      stagesize = (18290, 9750),
                      delay_split=None,
@@ -2408,7 +2696,7 @@ def test(file):
     subprocess.call(('open', file.split('.tx')[0]+".xlsx"))
 
 if __name__ == "__main__":
-    # test(file)
+    # test("/Users/olicrump/My Drive/Audio Work/20260401 Rick Astley/CAD/Old/RA BG V1.4.dxf")
     try:
         AutoMarkoutGUI()
     except Exception as e:
