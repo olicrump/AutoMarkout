@@ -5,6 +5,8 @@ With full GUI
 """
 
 import csv
+import tkinter
+
 # Output Functions
 # import print as printer
 import xlsxwriter
@@ -22,6 +24,7 @@ from functools import partial
 import subprocess, os, platform
 import copy
 import dxf_import
+import datetime as dt
 # Get logger
 logger = logging.getLogger("AutoMarkout")
 # Set logging level to the logger
@@ -61,40 +64,58 @@ class RiggingPoint:
                 self.point_type = data[15] + data[16]
 
     def print_xlsx(self,workbook, worksheet, row, col, direction, datum = (0.0,0.0)):
-
-        if self.point_type in self.qut_t_names:
-            colour = '#FDFFCC'
-        elif self.point_type in self.half_t_names:
-            colour = '#D8FFCC'
-        elif self.point_type in self.one_t_names:
-            colour = '#CCD0FF'
-        elif self.point_type in self.two_t_names:
-            colour = '#FFCCCC'
+        colour_mode = 'type'
+        if colour_mode == 'type':
+            if self.point_id[0] == 'S' and self.point_id[1] != 'E':
+                colour = '#ff80ea'
+            else:
+                colour = '#84ff80'
         else:
-            colour = '#FFFFFF'
+            if self.point_type in self.qut_t_names:
+                colour = '#FDFFCC'
+            elif self.point_type in self.half_t_names:
+                colour = '#D8FFCC'
+            elif self.point_type in self.one_t_names:
+                colour = '#CCD0FF'
+            elif self.point_type in self.two_t_names:
+                colour = '#FFCCCC'
+            else:
+                colour = '#FFFFFF'
 
-        main_format = workbook.add_format({'align': 'center',
+        id_format = workbook.add_format({'align': 'center',
                                            'valign': 'vcenter',
-                                           'border': True,
-                                           'font_size': 12,
-                                             'pattern': 1,
-                                           'bg_color': colour})
+                                           'border': False,
+                                           'font_size': 14,
+                                           'pattern': 1,
+                                           'bold': True,
+                                           'bg_color': colour,
+                                           'shrink': True})
+
+        type_format = workbook.add_format({'align': 'center',
+                                           'valign': 'vcenter',
+                                           'border': False,
+                                           'font_size': 14,
+                                           'pattern': 1,
+                                           'italic': True,
+                                           'bg_color': colour,
+                                           'shrink': True})
 
         meter_format = workbook.add_format({'align': 'center',
                                              'valign': 'vcenter',
                                              'border': True,
-                                             'font_size': 12,
+                                             'font_size': 14,
                                              'pattern': 1,
                                              'bg_color': colour,
-                                             'num_format': '0.00"m"'})
+                                             'num_format': '0.00"m"',
+                                             'shrink': True})
 
-        worksheet.write(row, col, self.point_id, main_format)
-        worksheet.write(row+1, col, self.point_type, main_format)
+        worksheet.write(row, col, self.point_id, id_format)
+        worksheet.write(row+1, col, self.get_symbol(), type_format)
         if direction == 'x':
             worksheet.write(row+2, col, (self.point_x-datum[0])/1000, meter_format)
         elif direction == 'y':
             worksheet.write(row+2, col, (self.point_y-datum[1])/1000, meter_format)
-        xlsx_box.apply_outer_border_to_range(
+        xlsx_box.just_outer_border_to_range(
             workbook,
             worksheet,
             {
@@ -102,15 +123,45 @@ class RiggingPoint:
                 "last_col_index": col,
                 "first_row_index": row,
                 "last_row_index": row+2,
-                "border_style": 2,
+                "border_style": 1,
             },
         )
+
+    def get_type(self):
+
+        if self.point_type in self.qut_t_names:
+            self.standard_type = "250KG"
+        elif self.point_type in self.half_t_names:
+            self.standard_type = "500KG"
+        elif self.point_type in self.one_t_names:
+            self.standard_type = "1000KG"
+        elif self.point_type in self.two_t_names:
+            self.standard_type = "2000KG"
+        else:
+            self.standard_type = "REF"
+
+        return self.standard_type
+
+    def get_symbol(self):
+
+        if self.point_type in self.qut_t_names:
+            self.print_type = "1/4T ◆"
+        elif self.point_type in self.half_t_names:
+            self.print_type = "1/2T ▲"
+        elif self.point_type in self.one_t_names:
+            self.print_type = "1T ●"
+        elif self.point_type in self.two_t_names:
+            self.print_type = "2T ■"
+        else:
+            self.print_type = "REF +"
+
+        return self.print_type
 
 class Markout:
 
     def __init__(self, direction, name_dict, datum=(0.0,0.0)):
         self.qtys = {'pos': 0, 'zero': 0, 'neg': 0}
-        self.points = {}
+        self.points = []
         self.lines = {}
         self.name_dict = name_dict
         if direction not in ['n', 'e', 's', 'w']:
@@ -123,10 +174,12 @@ class Markout:
         else:
             self.datum = datum
 
-        logger.info('Init Markout Obj for [%s] with datum %s and direction %s',
+        logger.info('Marokut: __init__: for [%s] with datum %s and direction %s',
                     name_dict['worksheet'], datum, direction)
 
     def append(self, point):
+
+        self.points.append(point)
 
         if self.direction == 'n' or self.direction == 's':
             primary_dim = round(point.point_y,-2)
@@ -143,7 +196,7 @@ class Markout:
                             'neg_points':[]}
 
         if self.direction == 'n' or self.direction == 's':
-            if point.point_x == 0:
+            if round(point.point_x,-2) == 0:
                 current_line['zero_point'].append(point)
             elif point.point_x > 0:
                 current_line['pos_points'].append(point)
@@ -161,7 +214,7 @@ class Markout:
 
         else:
 
-            if point.point_y == 0:
+            if round(point.point_y, -2) == 0:
                 current_line['zero_point'].append(point)
             elif point.point_y > 0:
                 current_line['pos_points'].append(point)
@@ -182,44 +235,44 @@ class Markout:
 
         self.lines[primary_dim] = current_line
 
-        logger.info('    - Added point [%s] to markout "%s" - X=%s Y=%s',
+        logger.info('Markout: append:    - Added point [%s] to markout "%s" - X=%s Y=%s',
                     ' '+point.point_id.ljust(8), self.name_dict['worksheet'], point.point_x, point.point_y)
 
-    def print_markout(self):
-        if self.points:
-            dims = []
-            for line in self.points:
-                dims.append(line)
-            for dim in dims:
-                if self.direction == 'n' or self.direction == 's':
-                    print('Move Tape to Y='+mm_to_m(self.points[dim][0].point_y))
-                    for point in self.points[dim]:
-                        print(' -- Mark point: '+point.point_id+' @ X= '+mm_to_m(point.point_x))
-                else:
-                    print('Move Tape to X='+mm_to_m(self.points[dim][0].point_x))
-                    for point in self.points[dim]:
-                        print(' -- Mark point: '+point.point_id+' @ Y= '+mm_to_m(point.point_y))
+    # def print_markout(self):
+    #     if self.points:
+    #         dims = []
+    #         for line in self.points:
+    #             dims.append(line)
+    #         for dim in dims:
+    #             if self.direction == 'n' or self.direction == 's':
+    #                 print('Move Tape to Y='+mm_to_m(self.points[dim][0].point_y))
+    #                 for point in self.points[dim]:
+    #                     print(' -- Mark point: '+point.point_id+' @ X= '+mm_to_m(point.point_x))
+    #             else:
+    #                 print('Move Tape to X='+mm_to_m(self.points[dim][0].point_x))
+    #                 for point in self.points[dim]:
+    #                     print(' -- Mark point: '+point.point_id+' @ Y= '+mm_to_m(point.point_y))
+    #
+    # def print_escpos(self, printer):
+    #     if self.points:
+    #         dims = []
+    #         for line in self.points:
+    #             dims.append(line)
+    #         for dim in dims:
+    #             if self.direction == 'n' or self.direction == 's':
+    #                 printer.text('\nTape to  Y='+mm_to_m(self.points[dim][0].point_y)+'\n\n')
+    #                 print('Move Tape to Y='+mm_to_m(self.points[dim][0].point_y))
+    #                 for point in self.points[dim]:
+    #                     printer.text(point.point_id.ljust(6)+' @ X='+mm_to_m(point.point_x).rjust(7)+'\n')
+    #                     print(' -- Mark point: '+point.point_id+' @ X= '+mm_to_m(point.point_x))
+    #             else:
+    #                 printer.text('\nTape to  X='+mm_to_m(self.points[dim][0].point_x)+'\n\n')
+    #                 print('Move Tape to X='+mm_to_m(self.points[dim][0].point_x))
+    #                 for point in self.points[dim]:
+    #                     printer.text(point.point_id.ljust(6)+' @ Y='+mm_to_m(point.point_y).rjust(7)+'\n')
+    #                     print(' -- Mark point: '+point.point_id+' @ Y= '+mm_to_m(point.point_y))
 
-    def print_escpos(self, printer):
-        if self.points:
-            dims = []
-            for line in self.points:
-                dims.append(line)
-            for dim in dims:
-                if self.direction == 'n' or self.direction == 's':
-                    printer.text('\nTape to  Y='+mm_to_m(self.points[dim][0].point_y)+'\n\n')
-                    print('Move Tape to Y='+mm_to_m(self.points[dim][0].point_y))
-                    for point in self.points[dim]:
-                        printer.text(point.point_id.ljust(6)+' @ X='+mm_to_m(point.point_x).rjust(7)+'\n')
-                        print(' -- Mark point: '+point.point_id+' @ X= '+mm_to_m(point.point_x))
-                else:
-                    printer.text('\nTape to  X='+mm_to_m(self.points[dim][0].point_x)+'\n\n')
-                    print('Move Tape to X='+mm_to_m(self.points[dim][0].point_x))
-                    for point in self.points[dim]:
-                        printer.text(point.point_id.ljust(6)+' @ Y='+mm_to_m(point.point_y).rjust(7)+'\n')
-                        print(' -- Mark point: '+point.point_id+' @ Y= '+mm_to_m(point.point_y))
-
-    def print_xlsx(self, workbook, formats):
+    def print_xlsx(self, workbook, formats, info):
 
         if self.lines:
 
@@ -228,29 +281,48 @@ class Markout:
             worksheet = workbook.add_worksheet(self.name_dict['worksheet'])  # This adds a flysheet
             worksheet.set_paper(9)
             worksheet.center_horizontally()
+            worksheet.hide_gridlines()
+
+            my_datetime = dt.datetime.now()
+            tt = my_datetime.timetuple()
+
+            worksheet.set_footer("&CGenerated automatically using AutoMarkout "+info['version']+" on "
+                                         +str(tt[2])+'/'+str(tt[1])+'/'+str(tt[0])+' at  '
+                                         +str(tt[3])+':'+str(tt[4])+':'+str(tt[5])+
+                                         ". Please verify before use.")
             # worksheet.center_vertically()
 
             # middle_col = self.qtys['pos']
             # full_width = self.qtys['pos'] + self.qtys['neg']
 
             col = 0
-            row = 3
+            row = 4
 
             if self.direction == 'n' or self.direction == 's':
-                worksheet.merge_range(0, 0, 0, 8, self.name_dict['worksheet'] + ' Markout', formats['city'])
+                worksheet.merge_range(0, 0, 0, 8, self.name_dict['worksheet'] + ' Markout ('+self.direction+')', formats['city'])
                 worksheet.merge_range(1, 0, 1, 8, self.name_dict['long'], formats['h1'])
+                worksheet.write(2, 0, "Source", formats['h1'])
+                worksheet.merge_range(2, 1, 2, 6, info['filename'], formats['h1'])
+                worksheet.merge_range(2, 7, 2, 8, info['markout_points']+" of "+info['total_points']+" Points", formats['h1'])
+                worksheet.fit_to_pages(1,1)
+                worksheet.set_portrait()
                 self.lines = dict(sorted(self.lines.items(), reverse=True))
 
                 if self.datum != (0.0,0.0):
-                    worksheet.merge_range(2, 0, 2, 8, 'Datum shifted to X= '+mm_to_m(self.datum[0])+' Y= '+mm_to_m(self.datum[1]), formats['h1_red'])
+                    worksheet.merge_range(3, 0, 3, 8, 'Datum shifted to X= '+mm_to_m(self.datum[0])+' Y= '+mm_to_m(self.datum[1]), formats['h1_red'])
                     row +=1
             else:
-                worksheet.merge_range(0, 0, 0, 12, self.name_dict['worksheet'] + ' Markout', formats['city'])
+                worksheet.merge_range(0, 0, 0, 12, self.name_dict['worksheet'] + ' Markout ('+self.direction+')', formats['city'])
                 worksheet.merge_range(1, 0, 1, 12, self.name_dict['long'], formats['h1'])
+                worksheet.write(2, 0, "Source", formats['h1'])
+                worksheet.merge_range(2, 1, 2, 10, info['filename'], formats['h1'])
+                worksheet.merge_range(2, 11, 2, 12, info['markout_points']+" of "+info['total_points']+" Points", formats['h1'])
+                worksheet.fit_to_pages(1,1)
+                worksheet.set_landscape()
                 self.lines = dict(sorted(self.lines.items(), reverse=False))
 
                 if self.datum != (0.0,0.0):
-                    worksheet.merge_range(2, 0, 2, 12, 'Datum shifted to X= '+mm_to_m(self.datum[0])+' Y= '+mm_to_m(self.datum[1]), formats['h1_red'])
+                    worksheet.merge_range(3, 0, 3, 12, 'Datum shifted to X= '+mm_to_m(self.datum[0])+' Y= '+mm_to_m(self.datum[1]), formats['h1_red'])
                     row +=1
 
 
@@ -302,8 +374,68 @@ class Markout:
                         row += 3
                     col += 1
 
+            if self.direction == 'n' and self.name_dict['worksheet'] == 'On Stage':
+                worksheet.merge_range(row, starting_col, row+2, starting_col, 0, formats['meter_yellow'])
+                xlsx_box.just_outer_border_to_range(
+                    workbook,
+                    worksheet,
+                    {
+                        "first_col_index": starting_col,
+                        "last_col_index": starting_col,
+                        "first_row_index": 4,
+                        "last_row_index": row + 2,
+                        "border_style": 2,
+                    },
+                )
+
+            if self.direction == 'e' and self.name_dict['worksheet'] == 'Stage Left':
+                xlsx_box.just_outer_border_to_range(
+                    workbook,
+                    worksheet,
+                    {
+                        "first_col_index": 0,
+                        "last_col_index": col-1,
+                        "first_row_index": starting_row,
+                        "last_row_index": starting_row + 2,
+                        "border_style": 2,
+                    },
+                )
+
+            if self.direction == 's' and self.name_dict['worksheet'] == 'Downstage':
+                xlsx_box.just_outer_border_to_range(
+                    workbook,
+                    worksheet,
+                    {
+                        "first_col_index": starting_col,
+                        "last_col_index": starting_col,
+                        "first_row_index": 4,
+                        "last_row_index": row -1,
+                        "border_style": 2,
+                    },
+                )
+
             if self.direction == 'w' and self.name_dict['worksheet'] == 'Stage Right':
                 worksheet.merge_range(starting_row, col, starting_row + 2, col, 0, formats['meter_yellow'])
+                xlsx_box.just_outer_border_to_range(
+                    workbook,
+                    worksheet,
+                    {
+                        "first_col_index": 0,
+                        "last_col_index": col,
+                        "first_row_index": starting_row,
+                        "last_row_index": starting_row + 2,
+                        "border_style": 2,
+                    },
+                )
+
+    def points_for_plot(self):
+        plot_points = []
+        for point in self.points:
+            plot_points.append({"name": point.point_id,
+                                "x": point.point_x,
+                                "y": point.point_y,
+                                "type": point.get_type(),
+                                "set": self.name_dict['worksheet']})
 
 class RiggingPlot:
 
@@ -341,26 +473,35 @@ class RiggingPlot:
 
     def filter_points(self,print_states):
 
-        self.filtered_points = []
+        if print_states:
 
-        for point in self.points:
-            if print_states[0][point.layer] == False or print_states[1][point.block_type] == False:
-                pass
-            else:
-                self.filtered_points.append(point)
+            self.filtered_points = []
+
+            for point in self.points:
+                if print_states[0][point.layer] == False or print_states[1][point.block_type] == False:
+                    pass
+                else:
+                    self.filtered_points.append(point)
+
+        else:
+            self.filtered_points = self.points
 
     def save_to_xlsx(self,
                      out_filename,
-                     print_states=None,
+                     print_states = None,
                      stagesize = None,
                      delay_split = None,
                      pa_mode = False,
-                     datum = (0.0,0.0)):
-        if print_states:
-            self.filter_points(print_states)
-            markouts = assign_markouts(self.filtered_points,stagesize, delay_split, pa_mode, datum)
-        else:
-            markouts = assign_markouts(self.points, stagesize, delay_split, pa_mode, datum)
+                     datum = (0.0,0.0),
+                     am_info = None):
+
+        self.filter_points(print_states)
+        markouts = assign_markouts(self.filtered_points,stagesize, delay_split, pa_mode, datum)
+
+        xlsx_info = {'version':am_info['version'],
+                           'total_points':str(len(self.filtered_points)),
+                           'markout_points':'',
+                           'filename':am_info['filename']}
 
         workbook = xlsxwriter.Workbook(out_filename)  # This creates the Excel document
         workbook.set_size(2000, 1200)
@@ -377,7 +518,8 @@ class RiggingPlot:
 
         for key in markouts:
             if markouts[key]:
-                markouts[key].print_xlsx(workbook, formats)
+                xlsx_info['markout_points'] = str(len(markouts[key].points))
+                markouts[key].print_xlsx(workbook, formats, xlsx_info)
 
         workbook.close()  # This Shuts the document
 
@@ -443,7 +585,9 @@ def assign_markouts(points = [],
                     stagesize = None,
                     delay_split = None,
                     pa_mode = False,
-                    datum = (0.0,0.0)):
+                    datum = (0.0,0.0),
+                    up_corners_in_up = True,
+                    down_corners_in_down = True):
     """
     :param points:
     A list of RiggingPoint objects
@@ -458,6 +602,8 @@ def assign_markouts(points = [],
     4:SR, W Direction
     5:Delay, S Direction
     """
+    if stagesize is None and (up_corners_in_up == False or down_corners_in_down == False):
+        raise ImportError
     markout_key = {0: {'long':  "Stage Markout, fixed tapes run US from Datum (Y-axis), Moving Tapes SL/SR (X-Axis)", # North
                        'escpos':"1: ON STAGE\nTAPES RUN US\n",
                        'worksheet':"On Stage"},
@@ -484,7 +630,7 @@ def assign_markouts(points = [],
         logging.info('  - assign_markouts: Point [%s] at X=%s, Y=%s',
                      point.point_id,point.point_y, point.point_x)
 
-        if pa_mode:
+        if pa_mode: # If pa_mode is used, all points are caught by this:
             if (point.point_y <= (- delay_split) if delay_split else False):
                 if 'DL' not in markouts:
                     markouts['DL'] = Markout('s', markout_key[5], (0.0, 0.0))
@@ -497,7 +643,9 @@ def assign_markouts(points = [],
                 point.markout = 3
                 markouts['ST'].append(point)
 
-        elif (point.point_y-datum[1]) <= 0.0:
+        elif (((point.point_y-datum[1]) <= 0.0 and down_corners_in_down)
+              or ((point.point_y <= (- delay_split) if delay_split else False))
+              or ((point.point_y-datum[1]) <= 0.0 and (abs(point.point_x-datum[0])) <= (stagesize[0]/2)) if stagesize else False):
 
             if (point.point_y <= (- delay_split) if delay_split else False):
                 if 'DL' not in markouts:
@@ -512,7 +660,8 @@ def assign_markouts(points = [],
                 markouts['DS'].append(point)
 
         elif stagesize:
-            if point.point_y >= stagesize[1]:
+            if (point.point_y >= stagesize[1]
+                    and (up_corners_in_up or ((abs(point.point_x-datum[0])) <= (stagesize[0]/2)))):
                 if 'US' not in markouts:
                     markouts['US'] = Markout('e', markout_key[1],(0.0,stagesize[1]))
                 # print('US')
@@ -966,7 +1115,7 @@ def set_formats(workbook):
 
 class AutoMarkoutGUI:
 
-    _version_num = 'v0.2.0-dev'
+    _version_num = 'v0.3.1-dev'
     _direct_print = False # True False
     _full_trace = True
 
@@ -1109,7 +1258,13 @@ class AutoMarkoutGUI:
         self.lbl_markout.grid(row=0, column=0, padx=(10,5), pady=(10,5), sticky="nsew")
 
         self.dpd_markout = customtkinter.CTkComboBox(self.markout_frame,
-                                                    values=['60x40ft Stage', '60x32ft Stage', 'Custom Stage', 'No Stage', 'PA Only Markout'],
+                                                    values=['60x40ft Stage',
+                                                            '60x32ft Stage',
+                                                            '18x12m Stage',
+                                                            '18x10m Stage',
+                                                            'Custom Stage',
+                                                            'No Stage',
+                                                            'PA Only Markout'],
                                                     state='disabled',
                                                     justify='center',
                                                     variable=self.markout,
@@ -1427,6 +1582,8 @@ class AutoMarkoutGUI:
 
         self.city = self.dpd_city.get()
         self.production = self.txt_production.get()
+        info = {'version':self._version_num,
+                'filename':os.path.split(self.filename)[1]}
 
         if self.dpd_units.get() == 'Metric (m/kg)':
             units = 0
@@ -1441,7 +1598,8 @@ class AutoMarkoutGUI:
                                            stagesize=self.stage_size,
                                            delay_split=24000 if self.pa_mode else None,
                                            pa_mode=self.pa_mode,
-                                           datum=(self.datum_x_flt,self.datum_y_flt))
+                                           datum=(self.datum_x_flt,self.datum_y_flt),
+                                           am_info=info)
         except Exception as e:
             tk.messagebox.showerror(title='Error',
                                     message=str(type(e).__name__)+' encountered while Saving Excel File',
@@ -1556,6 +1714,44 @@ class AutoMarkoutGUI:
 
             self.stage_width_flt = 18290
             self.stage_depth_flt = 9750
+
+            self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
+            self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
+
+            self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+            self.pa_mode = False
+
+        elif markout_type == '18x12m Stage':
+            self.txt_stage_width.configure(state='disabled', text_color= 'grey')
+            self.txt_stage_depth.configure(state='disabled', text_color= 'grey')
+
+            self.dpd_datum.configure(state='disabled')
+            self.datum_x_flt = 0
+            self.datum_x.set(str(f'{(self.datum_x_flt/1000):.2f}') + "m")
+            self.datum_y_flt = 0
+            self.datum_y.set(str(f'{(self.datum_y_flt/1000):.2f}') + "m")
+
+            self.stage_width_flt = 18000
+            self.stage_depth_flt = 12000
+
+            self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
+            self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
+
+            self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+            self.pa_mode = False
+
+        elif markout_type == '18x10m Stage':
+            self.txt_stage_width.configure(state='disabled', text_color= 'grey')
+            self.txt_stage_depth.configure(state='disabled', text_color= 'grey')
+
+            self.dpd_datum.configure(state='disabled')
+            self.datum_x_flt = 0
+            self.datum_x.set(str(f'{(self.datum_x_flt/1000):.2f}') + "m")
+            self.datum_y_flt = 0
+            self.datum_y.set(str(f'{(self.datum_y_flt/1000):.2f}') + "m")
+
+            self.stage_width_flt = 18000
+            self.stage_depth_flt = 10000
 
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
@@ -1822,7 +2018,7 @@ class AutoMarkoutGUI:
 
 class ImportCSV():
 
-    def __init__(self, filename, parent):
+    def __init__(self, filename, parent, mapping=None):
 
         self.parent = parent
         self.filename = filename
@@ -1935,6 +2131,18 @@ class ImportCSV():
                                                    command=self.block_dpd_callback)
         self.dpd_block.grid(row=2, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
 
+        self.consistent_attributes = tk.BooleanVar(self.blockfinder_window, True)
+
+        self.lbl_same = customtkinter.CTkLabel(self.blockfinder_window,
+                                                text='Consistent Blocks Attributes:',
+                                                justify='left')
+        self.lbl_same.grid(row=3, column=0, padx=(10, 5), pady=(5, 5), sticky="ew")
+
+        self.chk_same = customtkinter.CTkCheckBox(self.blockfinder_window, text=None, variable=self.consistent_attributes,
+                                                  fg_color=self.ctk_momentry_btn_fg,
+                                                  hover_color=self.ctk_momentry_btn_hover)
+        self.chk_same.grid(row=3, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
+
         # --------------------------------------------------------------
         # Button: Open file
         # --------------------------------------------------------------
@@ -1946,7 +2154,7 @@ class ImportCSV():
                                                 fg_color=self.ctk_momentry_btn_fg,
                                                 hover_color=self.ctk_momentry_btn_hover,
                                                 state='disabled')
-        self.btn_open.grid(row=3, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="ns")
+        self.btn_open.grid(row=4, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="ns")
 
         # --------------------------------------------------------------
         # Admin/Mainloop
@@ -1986,11 +2194,13 @@ class ImportCSV():
         self.layer_column = self.data.copy().pop(self.layer_column_no)
         self.block_column = self.data.copy().pop(self.block_column_no)
 
-        logger.info('    - Importer: Block/Layers Selected')
+        logger.info('    - ImportCSV: block_selected_callback: Block/Layers Selected')
 
         self.points = []
         for block in self.block_column['unique_vals']:
             self.filtered_data = self.filter_to_cols(block)
+
+            logger.info('    - ImportCSV: block_selected_callback: Data Filtered for  block "%s" - %s points',block,len(self.filtered_data[0]['data']))
 
             if self.block_column_no < self.layer_column_no:
                 self.layer_column = self.filtered_data.pop(self.layer_column_no)
@@ -1999,9 +2209,16 @@ class ImportCSV():
                 self.block_column = self.filtered_data.pop(self.block_column_no)
                 self.layer_column = self.filtered_data.pop(self.layer_column_no)
 
-            self.keyfinder_gui(block)
+            if not(self.points and self.chk_same.get()):
 
-            self.parent.wait_window(self.keyfinder_window)
+                logger.info('    - ImportCSV: block_selected_callback: Launching Attribute Selection')
+
+                self.keyfinder_gui(block)
+
+                self.parent.wait_window(self.keyfinder_window)
+            else:
+                logger.info('    - ImportCSV: block_selected_callback: Attribute Selection Bypassed')
+                self.sort_filtered_data()
 
             for i in range(len(self.layer_column['data'])):
                 sorted_data = {}
@@ -2013,7 +2230,7 @@ class ImportCSV():
                 sorted_data['y'] = float(self.ponty_column['data'][i])
                 self.points.append(RiggingPoint(sorted_data=sorted_data))
 
-            logger.info('    - Importer: Processed block "%s" -  %s points', block,len(self.points))
+            logger.info('    - ImportCSV: block_selected_callback: Processed block "%s" - Total %s points', block,len(self.points))
 
     def filter_to_cols(self, block_name=None):
         row_location = 0
@@ -2043,6 +2260,8 @@ class ImportCSV():
                     else:
                         min_val = min(min_val, x)
                         max_val = max(max_val, x)
+                if not max_val:
+                    raise ValueError
             except Exception as e:
                 # print(str(type(e).__name__)+' encountered.'+ traceback.format_exc() + '\n' + str(e))
                 col['type'] = 'text'
@@ -2276,14 +2495,20 @@ class ImportCSV():
         self.pontx_column_no = int(self.dpd_x.get().split(':')[0])-1
         self.ponty_column_no = int(self.dpd_y.get().split(':')[0])-1
 
+        logger.info('    - ImportCSV: key_selected_callback: Attributes Selected')
+
+        self.sort_filtered_data()
+
+        self.keyfinder_window.destroy()
+
+    def sort_filtered_data(self):
+
         self.pntid_column = self.filtered_data.copy().pop(self.pntid_column_no)
         self.ptype_column = self.filtered_data.copy().pop(self.ptype_column_no)
         self.pontx_column = self.filtered_data.copy().pop(self.pontx_column_no)
         self.ponty_column = self.filtered_data.copy().pop(self.ponty_column_no)
 
-        self.keyfinder_window.destroy()
-
-        logger.info('    - Importer: Attributes Selected')
+        logger.info('    - ImportCSV: sort_filtered_data: Data Sorted')
 
     # --------------------------------------------------------------
     # Return
@@ -2313,7 +2538,7 @@ class ImportCSV():
             misc = self.block_finder_gui()
             self.parent.wait_window(self.blockfinder_window)
 
-        logger.info('    - Importer: Returning %s points', len(self.points))
+        logger.info('    - ImportCSV: return_points: Returning %s points', len(self.points))
         return self.points
 
 class ImportDXF():
@@ -2347,7 +2572,7 @@ class ImportDXF():
         # Start the window
         # self.blockfinder_window = customtkinter.CTk()
         self.blockfinder_window = customtkinter.CTkToplevel(self.parent)
-        self.blockfinder_window.title("Import DXF Step 1")
+        self.blockfinder_window.title("Import DXF: Select blocks to use")
         self.blockfinder_window.option_add("*tearOff", False)
         self.blockfinder_window.lift()
         self.blockfinder_window.focus_force()
@@ -2367,18 +2592,19 @@ class ImportDXF():
         self.blockfinder_window.rowconfigure(index=2, weight=1)
         self.blockfinder_window.rowconfigure(index=3, weight=1)
 
-        block_names_dict = dxf_import.count_block_references(self.filename)
+        self.block_names_dict, self.refs = dxf_import.count_block_instances(self.filename, True)
+        self.unique_block_names_dict = dxf_import.unique_block_instances(self.block_names_dict)
 
-        block_names_for_dpd = []
-        for name in block_names_dict:
-            block_names_for_dpd.append(name+ ' [' +str(block_names_dict[name]) + ' instances]')
+        self.block_names_for_dpd = []
+        for block in self.unique_block_names_dict:
+            self.block_names_for_dpd.append(block['dpd_name'])
 
         # --------------------------------------------------------------
         # Header
         # --------------------------------------------------------------
 
         self.lbl_head = customtkinter.CTkLabel(self.blockfinder_window,
-                                               text='Please select the name of your block from the dropdown box.',
+                                               text='Please select your point blocks from the dropdown box.',
                                                justify='center')
         self.lbl_head.grid(row=0, column=0, padx=(10, 10), pady=(10, 5), sticky="nsew", columnspan=2)
 
@@ -2386,30 +2612,50 @@ class ImportDXF():
         # Text Vaules (layer, block, id, type)
         # --------------------------------------------------------------
 
-        self.lbl_block = customtkinter.CTkLabel(self.blockfinder_window,
-                                                text='Block Names:',
-                                                justify='left')
-        self.lbl_block.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="ew")
+        # self.lbl_block = customtkinter.CTkLabel(self.blockfinder_window,
+        #                                         text='Block Names:',
+        #                                         justify='left')
+        # self.lbl_block.grid(row=2, column=0, padx=(10, 5), pady=(5, 5), sticky="ew")
+        #
+        # self.dpd_block = customtkinter.CTkComboBox(self.blockfinder_window,
+        #                                            values=block_names_for_dpd,
+        #                                            #variable=self.block_col_name,
+        #                                            state="readonly",
+        #                                            command=self.block_dpd_callback)
+        # self.dpd_block.grid(row=2, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
 
-        self.dpd_block = customtkinter.CTkComboBox(self.blockfinder_window,
-                                                   values=block_names_for_dpd,
-                                                   #variable=self.block_col_name,
-                                                   state="readonly",
-                                                   command=self.block_dpd_callback)
-        self.dpd_block.grid(row=2, column=1, padx=(5, 10), pady=(5, 5), sticky="ew")
+        self.blocks_frame = customtkinter.CTkFrame(self.blockfinder_window, border_width=2, fg_color='transparent')
+        self.blocks_frame.grid(row=2, column=0, columnspan=2, padx=(10, 10), pady=(5, 5), sticky="nsew")
+
+        self.chk_blocks = ScrollableCheckBoxFrame(master=self.blocks_frame,
+                                                                 width = 450,
+                                                                 height= 385,
+                                                                 item_list=[])
+
+        for block_name in self.block_names_for_dpd:
+            self.chk_blocks.add_item(block_name, False)
 
         # --------------------------------------------------------------
         # Button: Open file
         # --------------------------------------------------------------
+
+        self.tkv_consistent = tkinter.BooleanVar(self.blockfinder_window, False)
+
+        self.chk_consistent = customtkinter.CTkCheckBox(self.blockfinder_window,
+                                                        text="Consitent Attributes",
+                                                        fg_color=self.ctk_momentry_btn_fg,
+                                                        hover_color=self.ctk_momentry_btn_hover,
+                                                        variable=self.tkv_consistent,
+                                                        state='disabled')
+        self.chk_consistent.grid(row=3, column=0, padx=(10,5), pady=(5,10), sticky="ns")
 
         self.btn_open = customtkinter.CTkButton(self.blockfinder_window,
                                                 text="Next",
                                                 command=self.block_selected_callback,
                                                 corner_radius= self.ctk_btn_corner_radius,
                                                 fg_color=self.ctk_momentry_btn_fg,
-                                                hover_color=self.ctk_momentry_btn_hover,
-                                                state='disabled')
-        self.btn_open.grid(row=3, column=0, columnspan=2, padx=(10,10), pady=(5,10), sticky="ns")
+                                                hover_color=self.ctk_momentry_btn_hover)
+        self.btn_open.grid(row=3, column=1, padx=(5,10), pady=(5,10), sticky="ns")
 
         # --------------------------------------------------------------
         # Admin/Mainloop
@@ -2435,48 +2681,70 @@ class ImportDXF():
 
         self.blockfinder_window.destroy()
 
-        logger.info('    - Importer: Block Selected')
+        logger.info('    - ImportDXF: block_selected_callback: called')
 
-        blocks = dxf_import.get_block_references(self.filename, block_name=self.block_name)
+        self.block_import_state = {}
 
-        if len(blocks) == 0:
+        self.blocks_to_process = []
+
+        for block in self.unique_block_names_dict:
+            if self.chk_blocks.get(block['dpd_name']).get():
+                block['write'] = True
+                self.blocks_to_process.append(block)
+
+        if len(self.blocks_to_process) == 0:
             pass
-
-        self.attributes = {}
-        for attribute in blocks[0]['attributes']:
-            # self.attributes.append(attribute)
-            unique_vals = []
-            for block in blocks:
-                if block['attributes'][attribute]['value'] not in unique_vals:
-                    unique_vals.append(block['attributes'][attribute]['value'])
-            self.attributes[attribute] = unique_vals
-
-        self.keyfinder_gui()
-        self.parent.wait_window(self.keyfinder_window)
 
         self.points = []
 
-        for block in blocks:
-            sorted_data = {}
-            sorted_data['layer'] = block['layer']
-            sorted_data['block'] = block['block_name']
-            sorted_data['id'] = block['attributes'][self.pntid_attribute]['value']
-            sorted_data['type'] = block['attributes'][self.ptype_attribute]['value']
-            sorted_data['x'] = block['insertion_point']['x']
-            sorted_data['y'] = block['insertion_point']['y']
-            self.points.append(RiggingPoint(sorted_data=sorted_data))
+        for block_type in self.blocks_to_process:
+            firstpass = True
+            blocks = []
+            for name in block_type['name']:
+                for item in self.refs:
+                    if item['block_name'] == name:
+                        blocks.append(item)
 
-        logger.info('    - Importer: Processed block "%s" -  %s points', block,len(self.points))
+            if len(blocks) == 0:
+                pass
+
+            self.attributes = {}
+            for attribute in blocks[0]['attributes']:
+                # self.attributes.append(attribute)
+                unique_vals = []
+                for block in blocks:
+                    if block['attributes'][attribute]['value'] not in unique_vals:
+                        unique_vals.append(block['attributes'][attribute]['value'])
+                self.attributes[attribute] = unique_vals
+
+            if firstpass:
+                self.keyfinder_gui(block_type['dpd_name'])
+                self.parent.wait_window(self.keyfinder_window)
+                firstpass = False
+
+            for block in blocks:
+                sorted_data = {}
+                sorted_data['layer'] = block['layer']
+                sorted_data['block'] = block['block_name']
+                sorted_data['id'] = block['attributes'][self.pntid_attribute]['value']
+                sorted_data['type'] = block['attributes'][self.ptype_attribute]['value']
+                sorted_data['x'] = block['insertion_point']['x']
+                sorted_data['y'] = block['insertion_point']['y']
+                self.points.append(RiggingPoint(sorted_data=sorted_data))
+
+            logger.info('    - ImportDXF: block_selected_callback: Processed block "%s" -  %s points', block_type['name'],len(blocks))
+
+        logger.info('    - ImportDXF: block_selected_callback: Processed all blocks -  total %s points', len(self.points))
 
     # --------------------------------------------------------------
     # Keyfinder
     # --------------------------------------------------------------
 
-    def keyfinder_gui(self):
+    def keyfinder_gui(self, block_name):
         # Start the window
         # self.keyfinder_window = customtkinter.CTk()
         self.keyfinder_window = customtkinter.CTkToplevel(self.parent)
-        self.keyfinder_window.title('Import DXF Step 2')
+        self.keyfinder_window.title('Import DXF: Select Attributes')
         self.keyfinder_window.option_add("*tearOff", False)
         self.keyfinder_window.lift()
         self.keyfinder_window.focus_force()
@@ -2515,7 +2783,7 @@ class ImportDXF():
         # --------------------------------------------------------------
 
         self.lbl_head = customtkinter.CTkLabel(self.keyfinder_window,
-                                               text='Please identify the block attributes using the dropdown boxes',
+                                               text='Please identify the block attributes for \n"'+block_name+'"\n using the dropdown boxes',
                                                justify='center')
         self.lbl_head.grid(row=0, column=0, padx=(10, 10), pady=(10, 5), sticky="nsew", columnspan=2)
 
@@ -2689,14 +2957,26 @@ def test(file):
     logger.info('Running test function with file: [%s]', file)
     dxf = ImportDXF(file,customtkinter.CTk())
     obj = RiggingPlot(dxf.return_points())
-    obj.save_to_xlsx(file.split('.tx')[0]+".xlsx",
-                     stagesize = (18290, 9750),
+    obj.save_to_xlsx(file.split('.dx')[0]+".xlsx",
+                     stagesize = (18000, 12000),
                      delay_split=None,
                      pa_mode=False)
-    subprocess.call(('open', file.split('.tx')[0]+".xlsx"))
+    subprocess.call(('open', file.split('.dx')[0]+".xlsx"))
+
+def testcsv(file):
+    logger.info('Running test function with file: [%s]', file)
+    dxf = ImportCSV(file,customtkinter.CTk()).return_points()
+    # obj = RiggingPlot(dxf.return_points())
+    # obj.save_to_xlsx(file.split('.cs')[0]+".xlsx",
+    #                  stagesize = (18290, 9750),
+    #                  delay_split=None,
+    #                  pa_mode=False)
+    # subprocess.call(('open', file.split('.cs')[0]+".xlsx"))
 
 if __name__ == "__main__":
     # test("/Users/olicrump/My Drive/Audio Work/20260401 Rick Astley/CAD/Old/RA BG V1.4.dxf")
+    # testcsv("/Users/olicrump/Desktop/Jungle 2026 V2-1 Master Kgs Barcelona - Standard/tJungle 2026 V2-1 Master Kgs Barcelona.txt")
+    # test("/Users/olicrump/My Drive/Audio Work/20261025 Jungle/Arraycalc/1030 Paris/Jungle 2026 V2-1 Master Kgs Paris - Standard/Jungle 2026 V2-1 Master Kgs Paris.dxf")
     try:
         AutoMarkoutGUI()
     except Exception as e:

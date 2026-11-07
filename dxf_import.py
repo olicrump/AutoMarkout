@@ -39,6 +39,8 @@ import sys
 from pathlib import Path
 import ezdxf
 from ezdxf.entities import Insert, AttDef
+import json
+import operator
 
 
 def _build_alias_map(doc) -> dict[str, str]:
@@ -149,7 +151,6 @@ def get_block_references(
 
     return results
 
-
 def count_block_references(dxf_path: str | Path) -> dict[str, int]:
     """
     Return a dictionary of block names and the number of times each is
@@ -174,13 +175,85 @@ def count_block_references(dxf_path: str | Path) -> dict[str, int]:
     counts: Counter[str] = Counter(r["block_name"] for r in refs)
     return dict(counts)
 
+def count_block_instances(dxf_path: str | Path, filter: bool):
+    """
+    Return a list of dictionaries
+    
+    Each dictionary contains:
+        A block name ("name")
+        The number of times that the block is inserted ("count")
+        The above two attributes comnined ("dpd_name")
+        A pre-empted processing status ("print")
+
+    Anonymous blocks that are aliases of a named block (same ATTDEF tags)
+    are resolved to the canonical name, consistent with get_block_references().
+
+    Args:
+        dxf_path: Path to the .dxf file.
+
+    Raises:
+        FileNotFoundError:       If the file does not exist.
+        ezdxf.DXFStructureError: If the file cannot be parsed.
+    """
+    from collections import Counter
+
+    refs = get_block_references(dxf_path)
+    counts: Counter[str] = Counter(r["block_name"] for r in refs)
+    block_dict =  dict(counts)
+    out_list = []
+    for name in block_dict:
+        if '*' in name and filter:
+            continue
+        attributes = []
+        first_time = True
+        for block in refs:
+            if block["block_name"] == name and first_time:
+                for key in block['attributes']:
+                    attributes.append(key)
+                first_time = False
+        out_list.append({'name': name,
+                         'count': block_dict[name],
+                         'dpd_name': name+ ' [' +str(block_dict[name]) + ' instances]',
+                         'attributes': attributes,
+                         'print': False
+                         })
+    return out_list, refs
+
+def unique_block_instances(all_blocks):
+    unique_blocks = [] # A list of dictionaries for each unique block based on it's attributes
+    for ablock in all_blocks:
+        unique = True
+        for ublock in unique_blocks:
+            if ablock["attributes"] == ublock["attributes"]:
+                unique = False
+                # Add this block name to the existing unique block and sum the counts
+                ublock["name"].append(ablock["name"])
+                ublock["count"] += ablock["count"]
+                ublock['dpd_name'] =  ublock["name"][0] + ' and ' +str(len(ublock["name"])) + ' others [' +str(ublock["count"]) + ' instances]'
+        if unique:
+            # Add a new entry for this block
+            unique_blocks.append({'name': [ablock['name']],
+                                  'count': ablock['count'],
+                                  'dpd_name': ablock['dpd_name'],
+                                  'attributes': ablock['attributes'],
+                                  'print': False
+                                  })
+    return sorted(unique_blocks, key=lambda k: k['count'], reverse=True)
+
+    # return unique_blocks.sort(key=operator.itemgetter('count'))
+
+
 if __name__ == '__main__':
 
     filename1 = "/Users/olicrump/My Drive/Audio Work/20260401 Rick Astley/CAD/Old/0417 Manchester COOP (RA 26).dxf"
     filename2 = "/Users/olicrump/My Drive/Audio Work/20260401 Rick Astley/CAD/Old/RA BG V1.4.dxf"
+    filename3 = "/Users/olicrump/My Drive/Audio Work/20261025 Jungle/Arraycalc/1030 Paris/Jungle 2026 V2-1 Master Kgs Paris - Standard/Jungle 2026 V2-1 Master Kgs Paris.dxf"
 
     # importer = DXF_Importer(filename2)
     # # importer.find_anon()
     # importer.findnames()
-    listd = get_block_references(filename2,block_name="My Multi Block 2025 PRACTICE")
-    print(listd)
+    # listd = get_block_references(filename2,block_name="My Multi Block 2025 PRACTICE")
+    # print(listd)
+    data, refs = count_block_instances(filename3,True)
+    uniquiedata = unique_block_instances(data)
+    print(json.dumps(uniquiedata, indent=8, sort_keys=False))
