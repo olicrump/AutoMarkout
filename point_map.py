@@ -23,8 +23,9 @@ TYPE_MARKERS = {"500KG": "^",
                 "2000KG": "s",
                 "1000KG": "o",
                 "REF": "X"}
-SET_COLOURS = {"Onstage": "#00ff00",
-               "Downstage": "#aa00aa",
+SET_COLOURS = {"On Stage": "#00ff00",
+               "Downstage": "#f5910f",
+               "Advance": "#aa00aa",
                "Upstage": "#00aaaa",
                "Stage Left": "#0000ff",
                "Stage Right": "#ff0000"}
@@ -44,7 +45,10 @@ POINTS = [
 
 
 class PointMap(ttk.Frame):
-    def __init__(self, master, points, datum=(0.0, 0.0), datum_label="Datum", stage=None):
+    def __init__(self, master, points, 
+                 datum=(0.0, 0.0), 
+                 datum_label="Datum", 
+                 stage=None):
         super().__init__(master)
         self.points = points
         self.datum = datum
@@ -100,10 +104,10 @@ class PointMap(ttk.Frame):
         ax.set_xlabel("Onstage/Offstage from datum (m)")
         ax.set_ylabel("Upstage/Downstage from datum (m)")
         if self.stage:
-            w = self.stage["width"]
-            d = self.stage["depth"]
-            cx = self.stage["x"] - self.datum[0]
-            cy = self.stage["y"] - self.datum[1]
+            w = self.stage["width"]/1000
+            d = self.stage["depth"]/1000
+            cx = self.stage["x-shift"]/1000 - self.datum[0]
+            cy = self.stage["y-shift"]/1000 - self.datum[1]
             rect = Rectangle((cx - w / 2, cy), w, d,
                               linewidth=1.2, edgecolor="0.4", facecolor="0.93", zorder=0)
             ax.add_patch(rect)
@@ -117,6 +121,14 @@ class PointMap(ttk.Frame):
         r *= 1 + pad
         self.ax.set_xlim(-r, r)
         self.ax.set_ylim(-r, r)
+        
+    def redraw_with_points(self, points, stage=None):
+        print('got here (rwp)')
+        print(points)
+        self._first_draw = True
+        self.stage = stage
+        self.points = points
+        self.redraw()
 
     def redraw(self):
         """(Re)draw the point layers and legends; keeps the current zoom/pan."""
@@ -150,11 +162,15 @@ class PointMap(ttk.Frame):
         type_handles = [Line2D([], [], ls="", marker=m, color="0.5", mec="black", ms=9, label=t)
                         for t, m in TYPE_MARKERS.items() if self.type_vars[t].get()]
         if set_handles:
-            leg = ax.legend(handles=set_handles, title="Set", loc="upper left")
+            leg = ax.legend(handles=set_handles,
+                            title="Markout",
+                            loc="upper right")
             ax.add_artist(leg)
             self.legends.append(leg)
         if type_handles:
-            self.legends.append(ax.legend(handles=type_handles, title="Type", loc="lower left"))
+            self.legends.append(ax.legend(handles=type_handles,
+                                          title="Type",
+                                          loc="lower right"))
 
         if self._first_draw:
             self._fit_all()  # fixed limits, so filtering doesn't make the view jump
@@ -191,7 +207,7 @@ if __name__ == "__main__":
              datum_label="Datum",
              stage={"width": 18000,
                     "depth": 12000,
-                    "x": 0,
-                    "y": 0}
+                    'x-shift': 0,
+                    'y-shift': 0}
              ).pack(fill="both", expand=True)
     root.mainloop()

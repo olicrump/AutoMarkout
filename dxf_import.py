@@ -222,6 +222,8 @@ def count_block_instances(dxf_path: str | Path, filter: bool):
 def unique_block_instances(all_blocks):
     unique_blocks = [] # A list of dictionaries for each unique block based on it's attributes
     for ablock in all_blocks:
+        if len(ablock["attributes"]) < 2:
+            continue
         unique = True
         for ublock in unique_blocks:
             if ablock["attributes"] == ublock["attributes"]:

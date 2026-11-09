@@ -1,5 +1,5 @@
 """
-Processes a TXT file from AutoCAD's "ATTEXT" function into a markout spreadsheet.
+Processes a dxf file or a TXT file from AutoCAD's "ATTEXT" function into a markout spreadsheet.
 
 With full GUI
 """
@@ -25,13 +25,15 @@ import subprocess, os, platform
 import copy
 import dxf_import
 import datetime as dt
+from decimal import Decimal, ROUND_HALF_UP
+from point_map import *
 # Get logger
 logger = logging.getLogger("AutoMarkout")
 # Set logging level to the logger
 logger.setLevel(logging.DEBUG)
 
 # --------------------------------------------------------------
-# Classes
+# Variable Classes
 # --------------------------------------------------------------
 
 class RiggingPoint:
@@ -66,7 +68,7 @@ class RiggingPoint:
     def print_xlsx(self,workbook, worksheet, row, col, direction, datum = (0.0,0.0)):
         colour_mode = 'type'
         if colour_mode == 'type':
-            if self.point_id[0] == 'S' and self.point_id[1] != 'E':
+            if (self.point_id[0] == 'S' and self.point_id[1] != 'E') if len(self.point_id) > 1 else False:
                 colour = '#ff80ea'
             else:
                 colour = '#84ff80'
@@ -182,10 +184,10 @@ class Markout:
         self.points.append(point)
 
         if self.direction == 'n' or self.direction == 's':
-            primary_dim = round(point.point_y,-2)
+            primary_dim = round_new(point.point_y,10)
             actual_dim = point.point_y
         else:
-            primary_dim = round(point.point_x,-2)
+            primary_dim = round_new(point.point_x,10)
             actual_dim = point.point_x
         try:
             current_line = self.lines[primary_dim]
@@ -196,7 +198,7 @@ class Markout:
                             'neg_points':[]}
 
         if self.direction == 'n' or self.direction == 's':
-            if round(point.point_x,-2) == 0:
+            if round_new(point.point_x,100) == 0:
                 current_line['zero_point'].append(point)
             elif point.point_x > 0:
                 current_line['pos_points'].append(point)
@@ -214,7 +216,7 @@ class Markout:
 
         else:
 
-            if round(point.point_y, -2) == 0:
+            if round_new(point.point_y, 100) == 0:
                 current_line['zero_point'].append(point)
             elif point.point_y > 0:
                 current_line['pos_points'].append(point)
@@ -235,8 +237,13 @@ class Markout:
 
         self.lines[primary_dim] = current_line
 
-        logger.info('Markout: append:    - Added point [%s] to markout "%s" - X=%s Y=%s',
-                    ' '+point.point_id.ljust(8), self.name_dict['worksheet'], point.point_x, point.point_y)
+        logger.info('Markout: append:    - Added point [ %s] (%s) to %s markout - X=%s Y=%s, primary dim=%s',
+                    point.point_id.ljust(8),
+                    point.point_type.ljust(8),
+                    self.name_dict['worksheet'].ljust(11),
+                    str(point.point_x).ljust(8),
+                    str(point.point_y).ljust(8),
+                    str(primary_dim).ljust(8))
 
     # def print_markout(self):
     #     if self.points:
@@ -432,10 +439,11 @@ class Markout:
         plot_points = []
         for point in self.points:
             plot_points.append({"name": point.point_id,
-                                "x": point.point_x,
-                                "y": point.point_y,
+                                "x": point.point_x/1000,
+                                "y": point.point_y/1000,
                                 "type": point.get_type(),
                                 "set": self.name_dict['worksheet']})
+        return plot_points
 
 class RiggingPlot:
 
@@ -486,17 +494,38 @@ class RiggingPlot:
         else:
             self.filtered_points = self.points
 
+    def point_count(self):
+        self.filter_points(None)
+        return len(self.filtered_points)
+
+    def points_for_plot(self,
+                     print_states = None,
+                     stage = None,
+                     delay_split = None,
+                     pa_mode = False,
+                     datum = (0.0,0.0)):
+        self.filter_points(None)
+        markouts = assign_markouts(self.filtered_points, stage, delay_split, pa_mode, datum)
+        all_points = []
+        for key in markouts:
+            if markouts[key]:
+                points = markouts[key].points_for_plot()
+                if points:
+                    for point in points:
+                        all_points.append(point)
+        return all_points
+
     def save_to_xlsx(self,
                      out_filename,
                      print_states = None,
-                     stagesize = None,
+                     stage = None,
                      delay_split = None,
                      pa_mode = False,
                      datum = (0.0,0.0),
                      am_info = None):
 
         self.filter_points(print_states)
-        markouts = assign_markouts(self.filtered_points,stagesize, delay_split, pa_mode, datum)
+        markouts = assign_markouts(self.filtered_points,stage, delay_split, pa_mode, datum)
 
         xlsx_info = {'version':am_info['version'],
                            'total_points':str(len(self.filtered_points)),
@@ -582,7 +611,7 @@ def import_csv(file):
     return points
 
 def assign_markouts(points = [],
-                    stagesize = None,
+                    stage = None,
                     delay_split = None,
                     pa_mode = False,
                     datum = (0.0,0.0),
@@ -591,37 +620,37 @@ def assign_markouts(points = [],
     """
     :param points:
     A list of RiggingPoint objects
-    :param stagesize:
-    A tuple of floats, defining the size of the stage
+    :param stage:
+    A dictoinary of floats with keys 'width', 'depth', 'x_shift', and 'y-shift'
     :return:
-    A list of Markout objects
-    0:Stage, N direction
-    1:US, N direction
-    2:SL, E Direction
-    3:DS, S Direction
-    4:SR, W Direction
-    5:Delay, S Direction
+    A dictionary of Markout objects
+    ST, N direction
+    US, N direction
+    SL, E Direction
+    DS, S Direction
+    SR, W Direction
+    DL, S Direction (AV)
     """
-    if stagesize is None and (up_corners_in_up == False or down_corners_in_down == False):
+    if stage is None and (up_corners_in_up == False or down_corners_in_down == False):
         raise ImportError
-    markout_key = {0: {'long':  "Stage Markout, fixed tapes run US from Datum (Y-axis), Moving Tapes SL/SR (X-Axis)", # North
+    markout_key = {0: {'long':  "Stage Markout, fixed tapes run US from DSE (Y+), Moving Tapes SL/SR (X)", # North
                        'escpos':"1: ON STAGE\nTAPES RUN US\n",
                        'worksheet':"On Stage"},
-                   1: {'long':  "Upstage Markout, fixed tapes run US from Datum (Y-axis), Moving Tape US from USE (Y)", # North but should be East
+                   1: {'long':  "Upstage Markout, fixed tapes run SL/SR (X), Moving Tape US from USE (Y+)", # North but should be East
                        'escpos':"2: UP STAGE\nTAPES RUN US\n",
                        'worksheet':"Upstage"},
-                   2: {'long':  "Stage Left Markout, fixed tapes SL/SR (X), Moving Tapes US from DSE (Y)",
+                   2: {'long':  "Stage Left Markout, fixed tapes Centre > SL (X+), Moving Tapes US from DSE (Y+)",
                        'escpos':"3: STAGE LEFT\nTAPES RUN SL\n",
                        'worksheet':"Stage Left"},
-                   3: {'long':  "Down Stage Markout, fixed tapes US/DS (Y), Moving Tapes SL/SR (X)",
+                   3: {'long':  "Down Stage Markout, fixed tapes DS from DSE (Y-), Moving Tapes SL/SR (X)",
                        'escpos':"4: DOWN STAGE\nTAPES RUN DS\n",
                        'worksheet':"Downstage"},
-                   4: {'long':  "Stage Right Markout, fixed tapes SL/SR (X), Moving Tapes US from DSE (Y)",
+                   4: {'long':  "Stage Right Markout, fixed tapes Centre > SR (X-), Moving Tapes US from DSE (Y+)",
                        'escpos':"5: STAGE RIGHT\nTAPES RUN SR\n",
                        'worksheet':"Stage Right"},
-                   5: {'long':  "Delays Markout, fixed tapes US/DS (Y), Moving Tapes SL/SR (X)",
-                       'escpos':"6: DELAYS\nTAPES RUN DS\n",
-                       'worksheet':"Delays"}}
+                   5: {'long':  "Advance Markout, fixed tapes run DS from datum (Y-), Moving Tapes SL/SR (X)",
+                       'escpos':"6: ADVANCE\nTAPES RUN DS\n",
+                       'worksheet':"ADVANCE"}}
 
     markouts = {}
 
@@ -645,7 +674,7 @@ def assign_markouts(points = [],
 
         elif (((point.point_y-datum[1]) <= 0.0 and down_corners_in_down)
               or ((point.point_y <= (- delay_split) if delay_split else False))
-              or ((point.point_y-datum[1]) <= 0.0 and (abs(point.point_x-datum[0])) <= (stagesize[0]/2)) if stagesize else False):
+              or ((point.point_y-datum[1]) <= 0.0 and (abs(point.point_x-datum[0])) <= (stage['width']/2)) if stage else False):
 
             if (point.point_y <= (- delay_split) if delay_split else False):
                 if 'DL' not in markouts:
@@ -659,21 +688,21 @@ def assign_markouts(points = [],
                 point.markout = 3
                 markouts['DS'].append(point)
 
-        elif stagesize:
-            if (point.point_y >= stagesize[1]
-                    and (up_corners_in_up or ((abs(point.point_x-datum[0])) <= (stagesize[0]/2)))):
+        elif stage:
+            if (point.point_y >= stage['depth']
+                    and (up_corners_in_up or ((abs(point.point_x-datum[0])) <= (stage['width']/2)))):
                 if 'US' not in markouts:
-                    markouts['US'] = Markout('e', markout_key[1],(0.0,stagesize[1]))
+                    markouts['US'] = Markout('e', markout_key[1],(0.0,stage['depth']))
                 # print('US')
                 point.markout = 1
                 markouts['US'].append(point)
-            elif point.point_x >= (stagesize[0]/2):
+            elif point.point_x >= (stage['width']/2):
                 if 'SL' not in markouts:
                     markouts['SL'] = Markout('e', markout_key[2],(0.0,0.0))
                 # print('SL')
                 point.markout = 2
                 markouts['SL'].append(point)
-            elif point.point_x <= (-stagesize[0]/2):
+            elif point.point_x <= (-stage['width']/2):
                 if 'SR' not in markouts:
                     markouts['SR'] = Markout('w', markout_key[4],(0.0,0.0))
                 # print('SR')
@@ -697,7 +726,7 @@ def assign_markouts(points = [],
 
 def mm_to_m(dist_mm):
 
-    return str('{:0.2f}'.format(round(dist_mm / 1000,2))) + 'm'
+    return str('{:0.2f}'.format(round_new(dist_mm / 1000,0.01))) + 'm'
 
 def mm_to_ftin(mm):
     dec_ft = (mm/1000)*3.28084
@@ -1109,6 +1138,16 @@ def set_formats(workbook):
 
     return formats
 
+def round_new(value, dp):
+
+    # Create Decimal objects instead of using floats
+    num = Decimal(value) * (1 / Decimal(dp))
+
+    # Use the quantize() method to round to two decimal places with rounding mode ROUND_HALF_UP
+    rounded_num = num.quantize(Decimal(1), rounding=ROUND_HALF_UP)
+
+    return(float(rounded_num)*dp)  # Outputs: 2.68
+
 # --------------------------------------------------------------
 # GUI
 # --------------------------------------------------------------
@@ -1121,7 +1160,7 @@ class AutoMarkoutGUI:
 
     def __init__(self):
 
-        customtkinter.set_appearance_mode("Dark")  # Modes: "System" (standard), "Dark", "Light"
+        customtkinter.set_appearance_mode("Light")  # Modes: "System" (standard), "Dark", "Light"
         customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 
         self.ctk_btn_corner_radius = 10
@@ -1161,13 +1200,20 @@ class AutoMarkoutGUI:
         self.production = tk.StringVar(self.automarkout_window, value='')
         self.units = tk.StringVar(self.automarkout_window, value="Metric (m/kg)")
 
-        self.markout = tk.StringVar(self.automarkout_window, value="60x40ft Stage")
-        self.stage_width = tk.StringVar(self.automarkout_window, value="18.29m")
-        self.stage_width_flt = 18290
-        self.stage_depth = tk.StringVar(self.automarkout_window, value="12.19m")
-        self.stage_depth_flt = 12190
+        self.markout = tk.StringVar(self.automarkout_window, value="18x10m Stage")
+        self.stage_width = tk.StringVar(self.automarkout_window, value="18.00m")
+        self.stage_width_flt = 18000
+        self.stage_depth = tk.StringVar(self.automarkout_window, value="10.00m")
+        self.stage_depth_flt = 10000
+        self.stage_x_shift = tk.StringVar(self.automarkout_window, value="0.00m")
+        self.stage_x_shift_flt = 0
+        self.stage_y_shift = tk.StringVar(self.automarkout_window, value="0.00m")
+        self.stage_y_shift_flt = 0
 
-        self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+        self.stage = {'width':self.stage_width_flt,
+                      'depth':self.stage_depth_flt,
+                      'x-shift':self.stage_x_shift_flt,
+                      'y-shift':self.stage_y_shift_flt}
         self.pa_mode = False
 
         self.datum = tk.StringVar(self.automarkout_window, value='Drawing Datum')
@@ -1363,20 +1409,22 @@ class AutoMarkoutGUI:
         self.selection_frame = customtkinter.CTkFrame(self.automarkout_window, fg_color='transparent')#, border_width=2)
         self.selection_frame.grid(row=0, column=1, rowspan=4, padx=(5, 10), pady=(10, 10), sticky="nsew")
 
-        self.layer_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
-        self.layer_frame_out.grid(row=0, column=0, padx=(0, 0), pady=(0, 0), sticky="nsew")
+        # self.layer_frame_out = customtkinter.CTkFrame(self.selection_frame, border_width=2, fg_color='transparent')
+        # self.layer_frame_out.grid(row=0, column=0, padx=(0, 0), pady=(0, 0), sticky="nsew")
+        #
+        # # Label: Filename
+        # self.lbl_layer = customtkinter.CTkLabel(self.layer_frame_out, text='Layer Selection:')
+        # self.lbl_layer.grid(row=2, column=0, padx=(10,10), pady=(10,5), sticky="nsew")
+        #
+        # self.layer_frame = customtkinter.CTkFrame(self.layer_frame_out, border_width=2, fg_color='transparent')
+        # self.layer_frame.grid(row=3, column=0, padx=(10, 10), pady=(5, 10), sticky="nsew")
+        #
+        # self.lst_layer_selection = ScrollableCheckBoxFrame(master=self.layer_frame,
+        #                                                          width = 450,
+        #                                                          height= 385,
+        #                                                          item_list=[])
 
-        # Label: Filename
-        self.lbl_layer = customtkinter.CTkLabel(self.layer_frame_out, text='Layer Selection:')
-        self.lbl_layer.grid(row=2, column=0, padx=(10,10), pady=(10,5), sticky="nsew")
-
-        self.layer_frame = customtkinter.CTkFrame(self.layer_frame_out, border_width=2, fg_color='transparent')
-        self.layer_frame.grid(row=3, column=0, padx=(10, 10), pady=(5, 10), sticky="nsew")
-
-        self.lst_layer_selection = ScrollableCheckBoxFrame(master=self.layer_frame,
-                                                                 width = 450,
-                                                                 height= 385,
-                                                                 item_list=[])
+        self.point_map = PointMap(self.selection_frame,[]).pack(fill="both", expand=True)
 
         # --------------------------------------------------------------
         # Create a Frame for Export
@@ -1494,7 +1542,7 @@ class AutoMarkoutGUI:
 
         # Check what type of file and export the data:
 
-        if '.txt' in self.filename or '.csv' in self.filename:
+        if self.filename[-4:] == '.txt' or self.filename[-4:] == '.csv':
             logging.info(' -- Gui: Filename Returned: %s', self.filename)
             try:
 
@@ -1508,7 +1556,7 @@ class AutoMarkoutGUI:
             else:
                 self.load_data()
 
-        elif '.dxf' in self.filename:
+        elif self.filename[-4:] == '.dxf':
             logging.info(' -- Gui: Filename Returned: %s', self.filename)
             try:
 
@@ -1522,6 +1570,12 @@ class AutoMarkoutGUI:
             else:
                 self.load_data()
 
+        elif self.filename[-4:] == '.dwg':
+            logging.info(' -- Not Supported Error')
+            tk.messagebox.showerror(title='Error',
+                                    message='DWG files are not supported',
+                                    detail='Please convert/export to a .dxf file')
+            return None
         else:
             logging.info(' -- Not Supported Error')
             tk.messagebox.showerror(title='Error',
@@ -1546,7 +1600,9 @@ class AutoMarkoutGUI:
 
         # Update fields in GUI
 
-        self.lbl_file.configure(text= 'Loaded file:\n'+self.filename.split('/')[-1])
+        self.lbl_file.configure(text= 'Loaded file:\n'
+                                      +self.filename.split('/')[-1]+'\n'
+                                      +str(self.rigging_plot.point_count())+' Points loaded')
 
         self.dpd_city.configure(variable = tk.StringVar(self.automarkout_window,
                                                         value=self.city),
@@ -1554,11 +1610,11 @@ class AutoMarkoutGUI:
 
         # self.update_checkboxes(self.filter.get())
 
-        self.lst_layer_selection.clear_all()
+        # self.lst_layer_selection.clear_all()
 
-        for layer in self.rigging_plot.get_layers():
-            # Add the source to the list, and pre-set the checkbox
-            self.lst_layer_selection.add_item(layer,True)
+        # for layer in self.rigging_plot.get_layers():
+        #     # Add the source to the list, and pre-set the checkbox
+        #     self.lst_layer_selection.add_item(layer,True)
 
         # self.dpd_city.configure(state='normal')
         # self.txt_production.configure(state='normal')
@@ -1569,6 +1625,7 @@ class AutoMarkoutGUI:
         self.btn_export.configure(state='normal')
         if self._direct_print == True:
             self.btn_print.configure(state='normal')
+        self.update_point_map()
 
     # --------------------------------------------------------------
     # Export button Functions
@@ -1594,8 +1651,8 @@ class AutoMarkoutGUI:
 
         try:
             self.rigging_plot.save_to_xlsx(self.out_filename,
-                                           print_states=self.read_checkboxes(),
-                                           stagesize=self.stage_size,
+                                           print_states=None,#self.read_checkboxes(),
+                                           stage=self.stage,
                                            delay_split=24000 if self.pa_mode else None,
                                            pa_mode=self.pa_mode,
                                            datum=(self.datum_x_flt,self.datum_y_flt),
@@ -1646,7 +1703,12 @@ class AutoMarkoutGUI:
         else:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
 
-        self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+        self.stage = {'width':self.stage_width_flt,
+                      'depth':self.stage_depth_flt,
+                      'x-shift':self.stage_x_shift_flt,
+                      'y-shift':self.stage_y_shift_flt}
+
+        self.update_point_map()
 
     def stage_depth_flush(self, event):
         entry = self.stage_depth.get().replace('m', '')
@@ -1657,7 +1719,12 @@ class AutoMarkoutGUI:
         else:
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-        self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+        self.stage = {'width':self.stage_width_flt,
+                      'depth':self.stage_depth_flt,
+                      'x-shift':self.stage_x_shift_flt,
+                      'y-shift':self.stage_y_shift_flt}
+
+        self.update_point_map()
 
     def datum_x_flush(self, event):
         entry = self.datum_x.get().replace('m', '')
@@ -1668,6 +1735,8 @@ class AutoMarkoutGUI:
         else:
             self.datum_x.set(str(f'{(self.datum_x_flt/1000):.2f}') + "m")
 
+        self.update_point_map()
+
     def datum_y_flush(self, event):
         entry = self.datum_y.get().replace('m', '')
         try:
@@ -1676,6 +1745,8 @@ class AutoMarkoutGUI:
             raise TypeError
         else:
             self.datum_y.set(str(f'{(self.datum_y_flt/1000):.2f}') + "m")
+
+        self.update_point_map()
 
     # --------------------------------------------------------------
     # Dropdown Callbacks
@@ -1699,7 +1770,10 @@ class AutoMarkoutGUI:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-            self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+            self.stage = {'width':self.stage_width_flt,
+                          'depth':self.stage_depth_flt,
+                          'x-shift':self.stage_x_shift_flt,
+                          'y-shift':self.stage_y_shift_flt}
             self.pa_mode = False
 
         elif markout_type == '60x32ft Stage':
@@ -1718,7 +1792,10 @@ class AutoMarkoutGUI:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-            self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+            self.stage = {'width':self.stage_width_flt,
+                          'depth':self.stage_depth_flt,
+                          'x-shift':self.stage_x_shift_flt,
+                          'y-shift':self.stage_y_shift_flt}
             self.pa_mode = False
 
         elif markout_type == '18x12m Stage':
@@ -1737,7 +1814,10 @@ class AutoMarkoutGUI:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-            self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+            self.stage = {'width':self.stage_width_flt,
+                          'depth':self.stage_depth_flt,
+                          'x-shift':self.stage_x_shift_flt,
+                          'y-shift':self.stage_y_shift_flt}
             self.pa_mode = False
 
         elif markout_type == '18x10m Stage':
@@ -1756,7 +1836,10 @@ class AutoMarkoutGUI:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-            self.stage_size = (self.stage_width_flt, self.stage_depth_flt)
+            self.stage = {'width':self.stage_width_flt,
+                          'depth':self.stage_depth_flt,
+                          'x-shift':self.stage_x_shift_flt,
+                          'y-shift':self.stage_y_shift_flt}
             self.pa_mode = False
 
         elif markout_type == 'Custom Stage':
@@ -1782,7 +1865,7 @@ class AutoMarkoutGUI:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-            self.stage_size = None
+            self.stage = None
             self.pa_mode = False
 
         elif markout_type == 'PA Only Markout':
@@ -1796,8 +1879,10 @@ class AutoMarkoutGUI:
             self.stage_width.set(str(f'{(self.stage_width_flt/1000):.2f}') + "m")
             self.stage_depth.set(str(f'{(self.stage_depth_flt/1000):.2f}') + "m")
 
-            self.stage_size = None
+            self.stage = None
             self.pa_mode = True
+
+        self.update_point_map()
 
     def datum_callback(self, event):
         datum_type = self.dpd_datum.get()
@@ -1824,6 +1909,15 @@ class AutoMarkoutGUI:
         elif datum_type == 'Custom':
             self.txt_datum_x.configure(state='normal', text_color= 'white')
             self.txt_datum_y.configure(state='normal', text_color= 'white')
+
+        self.update_point_map()
+
+    def update_point_map(self):
+        points = self.rigging_plot.points_for_plot(stage=self.stage)
+        self.selection_frame.children['!pointmap'].redraw_with_points(points,
+                                                                      stage=self.stage)
+        # self.point_map.redraw_with_points(self.rigging_plot.points_for_plot())
+
 
     # --------------------------------------------------------------
     # Print button Functions
@@ -2015,6 +2109,77 @@ class AutoMarkoutGUI:
                 tk.messagebox.showerror(title='Error',
                                         message=str(type(e).__name__)+' encountered while Printing',
                                         detail=e if self._full_trace == False else traceback.format_exc() + '\n' + str(e))
+
+class ScrollableCheckBoxFrame(customtkinter.CTkScrollableFrame):
+    def __init__(self, master, item_list, command=None, **kwargs):
+        super().__init__(master, **kwargs)
+        super().pack(expand=True, fill='both')
+
+        self.ctk_momentry_btn_fg = ('green4', 'green4')  # (light,dark)
+        self.ctk_momentry_btn_hover = ('dark green', 'dark green')
+        self.ctk_btn_corner_radius = 10
+
+        self.command = command
+        self.checkbox_list = []
+        for i, item in enumerate(item_list):
+            self.add_item(item)
+
+    def add_item(self, item, state=False):
+        checkbox_state = tk.BooleanVar(self, state)
+        checkbox = customtkinter.CTkCheckBox(self, text=item, variable=checkbox_state,
+                                                  fg_color=self.ctk_momentry_btn_fg,
+                                                  hover_color=self.ctk_momentry_btn_hover)
+        if self.command is not None:
+            checkbox.configure(command=self.command)
+        checkbox.grid(row=len(self.checkbox_list), column=0, pady=(0, 10), sticky="w")
+        self.checkbox_list.append(checkbox)
+
+    def update_item(self, item, state=False):
+        checkbox_state = tk.BooleanVar(self, state)
+        for checkbox in self.checkbox_list:
+            if item == checkbox.cget("text"):
+                checkbox.configure(variable=checkbox_state)
+                return
+
+    def remove_item(self, item):
+        for checkbox in self.checkbox_list:
+            if item == checkbox.cget("text"):
+                checkbox.destroy()
+                self.checkbox_list.remove(checkbox)
+                return
+
+    def clear_all(self):
+        for checkbox in self.checkbox_list:
+            checkbox.destroy()
+        self.checkbox_list = []
+
+    def get(self, item):
+        for checkbox in self.checkbox_list:
+            if item == checkbox.cget("text"):
+                return checkbox.cget("variable")
+
+    def get_checked_items(self):
+        return [checkbox.cget("text") for checkbox in self.checkbox_list if checkbox.get() == 1]
+
+class FloatEntry(customtkinter.CTkEntry):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        vcmd = (self.register(self.validate),'%P')
+        self.configure(validate="all", validatecommand=vcmd, justify='center')
+
+    def validate(self, text):
+        if (
+            all(char in "0123456789.m" for char in text) and  # all characters are valid
+            "-" not in text[1:] and # "-" is the first character or not present
+            "m" not in text[:-1] and # "-" is the first character or not present
+            text.count(".") <= 1): # only 0 or 1 periods
+                return True
+        else:
+            return False
+
+# --------------------------------------------------------------
+# Importers
+# --------------------------------------------------------------
 
 class ImportCSV():
 
@@ -2882,73 +3047,6 @@ class ImportDXF():
         logger.info('    - Importer: Returning %s points', len(self.points))
         return self.points
 
-class ScrollableCheckBoxFrame(customtkinter.CTkScrollableFrame):
-    def __init__(self, master, item_list, command=None, **kwargs):
-        super().__init__(master, **kwargs)
-        super().pack(expand=True, fill='both')
-
-        self.ctk_momentry_btn_fg = ('green4', 'green4')  # (light,dark)
-        self.ctk_momentry_btn_hover = ('dark green', 'dark green')
-        self.ctk_btn_corner_radius = 10
-
-        self.command = command
-        self.checkbox_list = []
-        for i, item in enumerate(item_list):
-            self.add_item(item)
-
-    def add_item(self, item, state=False):
-        checkbox_state = tk.BooleanVar(self, state)
-        checkbox = customtkinter.CTkCheckBox(self, text=item, variable=checkbox_state,
-                                                  fg_color=self.ctk_momentry_btn_fg,
-                                                  hover_color=self.ctk_momentry_btn_hover)
-        if self.command is not None:
-            checkbox.configure(command=self.command)
-        checkbox.grid(row=len(self.checkbox_list), column=0, pady=(0, 10), sticky="w")
-        self.checkbox_list.append(checkbox)
-
-    def update_item(self, item, state=False):
-        checkbox_state = tk.BooleanVar(self, state)
-        for checkbox in self.checkbox_list:
-            if item == checkbox.cget("text"):
-                checkbox.configure(variable=checkbox_state)
-                return
-
-    def remove_item(self, item):
-        for checkbox in self.checkbox_list:
-            if item == checkbox.cget("text"):
-                checkbox.destroy()
-                self.checkbox_list.remove(checkbox)
-                return
-
-    def clear_all(self):
-        for checkbox in self.checkbox_list:
-            checkbox.destroy()
-        self.checkbox_list = []
-
-    def get(self, item):
-        for checkbox in self.checkbox_list:
-            if item == checkbox.cget("text"):
-                return checkbox.cget("variable")
-
-    def get_checked_items(self):
-        return [checkbox.cget("text") for checkbox in self.checkbox_list if checkbox.get() == 1]
-
-class FloatEntry(customtkinter.CTkEntry):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        vcmd = (self.register(self.validate),'%P')
-        self.configure(validate="all", validatecommand=vcmd, justify='center')
-
-    def validate(self, text):
-        if (
-            all(char in "0123456789.m" for char in text) and  # all characters are valid
-            "-" not in text[1:] and # "-" is the first character or not present
-            "m" not in text[:-1] and # "-" is the first character or not present
-            text.count(".") <= 1): # only 0 or 1 periods
-                return True
-        else:
-            return False
-
 # --------------------------------------------------------------
 # Testing
 # --------------------------------------------------------------
@@ -2958,9 +3056,10 @@ def test(file):
     dxf = ImportDXF(file,customtkinter.CTk())
     obj = RiggingPlot(dxf.return_points())
     obj.save_to_xlsx(file.split('.dx')[0]+".xlsx",
-                     stagesize = (18000, 12000),
+                     stage = {'width':18000, 'depth':12000, 'x-shift':0, 'y-shift':0},
                      delay_split=None,
-                     pa_mode=False)
+                     pa_mode=False,
+                     am_info={'version':'test','filename':file})
     subprocess.call(('open', file.split('.dx')[0]+".xlsx"))
 
 def testcsv(file):
@@ -2968,7 +3067,7 @@ def testcsv(file):
     dxf = ImportCSV(file,customtkinter.CTk()).return_points()
     # obj = RiggingPlot(dxf.return_points())
     # obj.save_to_xlsx(file.split('.cs')[0]+".xlsx",
-    #                  stagesize = (18290, 9750),
+    #                  stage = {'width':18000, 'depth':12000, 'x-shift':0, 'y-shift':0},
     #                  delay_split=None,
     #                  pa_mode=False)
     # subprocess.call(('open', file.split('.cs')[0]+".xlsx"))
@@ -2976,7 +3075,7 @@ def testcsv(file):
 if __name__ == "__main__":
     # test("/Users/olicrump/My Drive/Audio Work/20260401 Rick Astley/CAD/Old/RA BG V1.4.dxf")
     # testcsv("/Users/olicrump/Desktop/Jungle 2026 V2-1 Master Kgs Barcelona - Standard/tJungle 2026 V2-1 Master Kgs Barcelona.txt")
-    # test("/Users/olicrump/My Drive/Audio Work/20261025 Jungle/Arraycalc/1030 Paris/Jungle 2026 V2-1 Master Kgs Paris - Standard/Jungle 2026 V2-1 Master Kgs Paris.dxf")
+    # test("/Users/olicrump/My Drive/Audio Work/20261025 Jungle/Arraycalc/1108 Berlin/Jungle Berlin for Markout.dxf")
     try:
         AutoMarkoutGUI()
     except Exception as e:
